@@ -1,0 +1,647 @@
+/**
+ * Content Rules Dialog Styles
+ * Configure AI settings, content rules, and custom actions.
+ */
+
+#unlimitedai-plugin .ubai-content-rules-dialog,
+#unlimitedai-plugin .ubai-content-rules-dialog * {
+    box-sizing: border-box;
+}
+
+/* Content Rules Dialog - fixed overlay, centered, hidden by default */
+#unlimitedai-plugin .ubai-content-rules-dialog {
+    position: fixed;
+    inset: 0;
+    z-index: 100000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(2px);
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__container {
+    position: relative;
+    width: 500px;
+    max-width: 100%;
+    max-height: calc(100vh - 48px);
+    background-color: #ffffff;
+    border-radius: 8px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+    display: flex;
+    flex-direction: column;
+}
+
+/* Header */
+#unlimitedai-plugin .ubai-content-rules-dialog__close {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    transition: background-color 0.15s ease;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__close:hover {
+    background-color: #f5f5f5;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__close svg {
+    width: 20px;
+    height: 20px;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__header {
+    padding: 24px 24px 16px;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__title {
+    margin: 0;
+    font-size: 1.5em;
+    font-weight: 600;
+    color: #333;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__description {
+    margin: 6px 0 0;
+    font-size: 0.9em;
+    color: #666;
+}
+
+/* Tabs */
+#unlimitedai-plugin .ubai-content-rules-dialog__tabs {
+    display: flex;
+    gap: 24px;
+    padding: 0 24px;
+    border-bottom: 1px solid #e6e6e6;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__tab {
+    padding: 12px 0;
+    font-size: 14px;
+    color: #666;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    font-weight: 500;
+    margin-bottom: -1px;
+    transition: color 0.15s ease;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__tab:hover {
+    color: #333;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__tab--active {
+    color: #333;
+    border-bottom-color: #333;
+    font-weight: 600;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__tab:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+/* Body - scrollable */
+#unlimitedai-plugin .ubai-content-rules-dialog__body {
+    padding: 20px 24px;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__form-group {
+    margin-bottom: 16px;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__form-group:last-child {
+    margin-bottom: 0;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__form-group label {
+    display: block;
+    font-size: 14px;
+    font-weight: 500;
+    color: #333;
+    margin-bottom: 6px;
+}
+
+/* Content Language - input + choose dropdown */
+#unlimitedai-plugin .ubai-content-rules-dialog__language-wrapper {
+    position: relative;
+    display: flex;
+    gap: 8px;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__language-wrapper .ubai-content-rules-dialog__input {
+    flex: 1;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__language-choose-btn {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #333;
+    background-color: #f0f0f0;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background-color 0.15s ease;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__language-choose-btn:hover {
+    background-color: #e5e5e5;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__language-choose-btn svg {
+    flex-shrink: 0;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__language-list {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin-top: 4px;
+    max-height: 220px;
+    overflow-y: auto;
+    background: #fff;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    z-index: 10;
+    display: none;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__language-list.ubai-content-rules-dialog__language-list--open {
+    display: block;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__language-item {
+    padding: 8px 12px;
+    font-size: 14px;
+    color: #333;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__language-item:hover {
+    background-color: #f5f5f5;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__input,
+#unlimitedai-plugin .ubai-content-rules-dialog__select,
+#unlimitedai-plugin .ubai-content-rules-dialog__textarea {
+    width: 100%;
+    padding: 8px 12px;
+    font-size: 14px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background-color: #fff;
+    font-family: inherit;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__input:focus,
+#unlimitedai-plugin .ubai-content-rules-dialog__select:focus,
+#unlimitedai-plugin .ubai-content-rules-dialog__textarea:focus {
+    outline: none;
+    border-color: #333;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__select {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    padding-right: 36px;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__textarea {
+    resize: vertical;
+    min-height: 80px;
+}
+
+/* Tab panels */
+#unlimitedai-plugin .ubai-content-rules-dialog__panel-placeholder {
+    margin: 0;
+    color: #666;
+    font-size: 14px;
+}
+
+/* Vocabulary tab */
+#unlimitedai-plugin .ubai-content-rules-dialog__vocab-section {
+    margin-bottom: 24px;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__vocab-section:last-child {
+    margin-bottom: 0;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__vocab-label {
+    display: block;
+    font-size: 14px;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 10px;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__vocab-input-row {
+    display: flex;
+    align-items: stretch;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background-color: #fff;
+    overflow: hidden;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__vocab-input {
+    flex: 1;
+    padding: 8px 12px;
+    font-size: 14px;
+    border: none;
+    outline: none;
+    font-family: inherit;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__vocab-input:focus {
+    outline: none;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__vocab-input-separator {
+    width: 1px;
+    background-color: #e0e0e0;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__vocab-add-btn {
+    padding: 8px 16px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #333;
+    background-color: #f0f0f0;
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background-color 0.15s ease;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__vocab-add-btn:hover {
+    background-color: #e5e5e5;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__vocab-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__vocab-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #fff;
+    border-radius: 4px;
+    border: none;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__vocab-tags--avoid .ubai-content-rules-dialog__vocab-tag {
+    background-color: #dc2626;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__vocab-tags--prefer .ubai-content-rules-dialog__vocab-tag {
+    background-color: #16a34a;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__vocab-tag-remove {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    margin: 0;
+    width: 16px;
+    height: 16px;
+    background: transparent;
+    border: none;
+    color: #fff;
+    cursor: pointer;
+    border-radius: 2px;
+    opacity: 0.9;
+    line-height: 1;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__vocab-tag-remove:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.2);
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__vocab-tag-remove svg {
+    width: 12px;
+    height: 12px;
+}
+
+/* Custom Actions tab */
+#unlimitedai-plugin .ubai-content-rules-dialog__custom-section {
+    margin-bottom: 24px;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__custom-section:last-child {
+    margin-bottom: 0;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__custom-label {
+    display: block;
+    font-size: 14px;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 12px;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__custom-add-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #333;
+    background-color: #f0f0f0;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background-color 0.15s ease;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__custom-add-btn:hover {
+    background-color: #e5e5e5;
+}
+
+#unlimitedai-plugin button:disabled {
+    background-color: #d8d8d8;
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+#unlimitedai-plugin button:disabled:hover {
+    background-color: #d8d8d8;
+    opacity: 0.5;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__custom-add-btn svg {
+    flex-shrink: 0;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__custom-actions-wrapper {
+    position: relative;
+    min-height: 60px;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__custom-actions-empty {
+    display: block;
+    padding: 16px;
+    font-size: 14px;
+    color: #888;
+    text-align: center;
+    background-color: #f8f8f8;
+    border: 1px dashed #e0e0e0;
+    border-radius: 6px;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__custom-actions-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__custom-action-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 14px;
+    background-color: #f8f8f8;
+    border-radius: 6px;
+    border: 1px solid #e6e6e6;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__custom-action-icon {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    color: #737373;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__custom-action-content {
+    flex: 1;
+    min-width: 0;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__custom-action-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #333;
+    margin: 0 0 4px;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__custom-action-desc {
+    font-size: 13px;
+    color: #666;
+    margin: 0;
+    line-height: 1.4;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__custom-action-delete {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: #dc2626;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: background-color 0.15s ease;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__custom-action-delete:hover {
+    background-color: rgba(220, 38, 38, 0.1);
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__custom-action-delete svg {
+    width: 16px;
+    height: 16px;
+}
+
+/* Debug tab */
+#unlimitedai-plugin .ubai-content-rules-dialog__debug-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 14px 16px;
+    background-color: #f8f8f8;
+    border-radius: 6px;
+    border: 1px solid #e6e6e6;
+    margin-bottom: 16px;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__debug-card-icon {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    color: #737373;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__debug-card-icon svg {
+    width: 24px;
+    height: 24px;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__debug-card-content {
+    flex: 1;
+    min-width: 0;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__debug-card-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #333;
+    margin: 0 0 4px;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__debug-card-desc {
+    font-size: 13px;
+    color: #666;
+    margin: 0;
+    line-height: 1.4;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__debug-toggle {
+    flex-shrink: 0;
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__debug-toggle-input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__debug-toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    inset: 0;
+    background-color: #e6e6e6;
+    border: 1px solid #e5e5e5;
+    transition: 0.3s;
+    border-radius: 24px;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__debug-toggle-slider:before {
+    position: absolute;
+    content: "";
+    height: 20px;
+    width: 20px;
+    left: 1px;
+    bottom: 1px;
+    background-color: white;
+    transition: 0.3s;
+    border-radius: 50%;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__debug-toggle-input:checked + .ubai-content-rules-dialog__debug-toggle-slider {
+    background-color: #171717;
+    border-color: #171717;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__debug-toggle-input:checked + .ubai-content-rules-dialog__debug-toggle-slider:before {
+    transform: translateX(20px);
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__debug-info {
+    padding: 14px 16px;
+    background-color: #fef3c7;
+    border-radius: 6px;
+    border: 1px solid #fcd34d;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__debug-info-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #d97706;
+    margin: 0 0 6px;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__debug-info-text {
+    font-size: 13px;
+    color: #92400e;
+    margin: 0;
+    line-height: 1.5;
+}
+
+/* Footer */
+#unlimitedai-plugin .ubai-content-rules-dialog__footer {
+    padding: 16px 24px 24px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__btn {
+    padding: 8px 16px;
+    font-size: 14px;
+    font-weight: 500;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__btn--cancel {
+    background-color: #fff;
+    color: #333;
+    border: 1px solid #ccc;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__btn--cancel:hover {
+    background-color: #f5f5f5;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__btn--save {
+    background-color: #333;
+    color: #fff;
+    border: none;
+}
+
+#unlimitedai-plugin .ubai-content-rules-dialog__btn--save:hover {
+    background-color: #222;
+}
