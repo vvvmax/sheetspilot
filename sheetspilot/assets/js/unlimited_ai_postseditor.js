@@ -4547,7 +4547,7 @@ function SheetsPilot_PostsEditorView(action_prefix, action_name) {
 		}
 		if (!document.getElementById('ubai_prompt_requests_panel_style')) {
 			var css = [
-				'#ubai_prompt_requests_panel{position:fixed;top:110px;right:16px;width:308px;max-height:64vh;display:none;flex-direction:column;background:#fff;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 12px 32px rgba(16,24,40,.16);z-index:100002;font-size:13px;color:#374151;overflow:hidden;}',
+				'#ubai_prompt_requests_panel{position:fixed;top:78px;right:16px;width:308px;max-height:64vh;display:none;flex-direction:column;background:#fff;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 12px 32px rgba(16,24,40,.16);z-index:100002;font-size:13px;color:#374151;overflow:hidden;}',
 				'#ubai_prompt_requests_panel.is-open{display:flex;}',
 				'#ubai_prompt_requests_panel .ubai-prq__header{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid #f3f4f6;background:#fafafa;}',
 				'#ubai_prompt_requests_panel .ubai-prq__title{font-weight:600;color:#111827;font-size:13px;display:flex;align-items:center;gap:7px;}',
@@ -4692,7 +4692,8 @@ function SheetsPilot_PostsEditorView(action_prefix, action_name) {
 		return String(postId) + ':' + String(columnIndex);
 	}
 
-	function renderPromptRequestsPanel() {
+	function renderPromptRequestsPanel(options) {
+		options = options || {};
 		var $panel = ensurePromptRequestsPanel();
 		var $list = $panel.find('.ubai-prq__list');
 		var strings = (typeof sheetspilot !== 'undefined' && sheetspilot.editor) ? sheetspilot.editor : {};
@@ -4701,63 +4702,65 @@ function SheetsPilot_PostsEditorView(action_prefix, action_name) {
 		if (!g_promptRequestsPanelItems.length) {
 			$list.append(jQuery('<div class="ubai-prq__empty"></div>')
 				.text(strings.promptRequestsPanelEmpty || 'No AI requests right now.'));
-		} else {
-			g_promptRequestsPanelItems.forEach(function (item) {
-				var ready = item.state === 'ready';
-				var waiting = item.state === 'waiting';
-				var errored = item.state === 'error';
-				var isActive = activeKey && item.key === activeKey;
-				var stateClass = ready ? ' ubai-prq__item--ready' : (waiting ? ' ubai-prq__item--waiting' : (errored ? ' ubai-prq__item--error' : ' ubai-prq__item--loading'));
-				var itemClass = 'ubai-prq__item' + stateClass +
-					(isActive ? ' ubai-prq__item--active' : '');
-				var $item = jQuery('<div class="' + itemClass + '" data-key="' + item.key + '"></div>');
-				var $status = jQuery('<span class="ubai-prq__status"></span>');
-				$status.append(ready
-					? '<span class="ubai-prq__dot"></span>'
-					: (waiting
-						? '<span class="ubai-prq__spinner ubai-prq__spinner--queued" title="Waiting for slot"></span>'
-						: (errored
-							? '<span class="ubai-prq__dot ubai-prq__dot--error"></span>'
-							: '<span class="ubai-prq__spinner"></span>')));
-				var $meta = jQuery('<span class="ubai-prq__meta"></span>');
-				$meta.append(jQuery('<div class="ubai-prq__label"></div>').text(item.label || 'Cell'));
-				var subText = item.sub || '';
-				var stateText = ready
-					? (strings.promptRequestReady || 'Result ready')
-					: (waiting ? (strings.promptRequestWaiting || 'Waiting') : (errored ? 'Error' : (strings.promptRequestLoading || 'Generating…')));
-				var detailText = errored ? (item.errorMessage || subText || '') : subText;
-				var tooltipText = errored ? (item.errorDetailText || item.errorMessage || '') : '';
-				var $sub = jQuery('<div class="ubai-prq__sub"></div>').text(detailText ? stateText + ' · ' + detailText : stateText);
-				if (tooltipText) {
-					$sub.attr('title', tooltipText);
-					$item.attr('title', tooltipText);
-				}
-				$meta.append($sub);
-				if ((ready || errored) && item.logId) {
-					$meta.append(
-						jQuery('<div class="ubai-prq__log-id"></div>').text('Log #' + item.logId)
-					);
-				}
-				$item.append($status).append($meta);
-				$item.append(
-					jQuery('<button type="button" class="ubai-prq__clear"></button>')
-						.text(strings.promptRequestClear || 'Clear')
+			$panel.find('.ubai-prq__badge').hide();
+			// Auto-hide when the last request is gone; manual open keeps the empty state visible.
+			if (options.hideIfEmpty !== false) {
+				$panel.removeClass('is-open');
+			}
+			updatePromptResultsToolbarButton();
+			return;
+		}
+		g_promptRequestsPanelItems.forEach(function (item) {
+			var ready = item.state === 'ready';
+			var waiting = item.state === 'waiting';
+			var errored = item.state === 'error';
+			var isActive = activeKey && item.key === activeKey;
+			var stateClass = ready ? ' ubai-prq__item--ready' : (waiting ? ' ubai-prq__item--waiting' : (errored ? ' ubai-prq__item--error' : ' ubai-prq__item--loading'));
+			var itemClass = 'ubai-prq__item' + stateClass +
+				(isActive ? ' ubai-prq__item--active' : '');
+			var $item = jQuery('<div class="' + itemClass + '" data-key="' + item.key + '"></div>');
+			var $status = jQuery('<span class="ubai-prq__status"></span>');
+			$status.append(ready
+				? '<span class="ubai-prq__dot"></span>'
+				: (waiting
+					? '<span class="ubai-prq__spinner ubai-prq__spinner--queued" title="Waiting for slot"></span>'
+					: (errored
+						? '<span class="ubai-prq__dot ubai-prq__dot--error"></span>'
+						: '<span class="ubai-prq__spinner"></span>')));
+			var $meta = jQuery('<span class="ubai-prq__meta"></span>');
+			$meta.append(jQuery('<div class="ubai-prq__label"></div>').text(item.label || 'Cell'));
+			var subText = item.sub || '';
+			var stateText = ready
+				? (strings.promptRequestReady || 'Result ready')
+				: (waiting ? (strings.promptRequestWaiting || 'Waiting') : (errored ? 'Error' : (strings.promptRequestLoading || 'Generating…')));
+			var detailText = errored ? (item.errorMessage || subText || '') : subText;
+			var tooltipText = errored ? (item.errorDetailText || item.errorMessage || '') : '';
+			var $sub = jQuery('<div class="ubai-prq__sub"></div>').text(detailText ? stateText + ' · ' + detailText : stateText);
+			if (tooltipText) {
+				$sub.attr('title', tooltipText);
+				$item.attr('title', tooltipText);
+			}
+			$meta.append($sub);
+			if ((ready || errored) && item.logId) {
+				$meta.append(
+					jQuery('<div class="ubai-prq__log-id"></div>').text('Log #' + item.logId)
 				);
-				$list.append($item);
-			});
-		}
+			}
+			$item.append($status).append($meta);
+			$item.append(
+				jQuery('<button type="button" class="ubai-prq__clear"></button>')
+					.text(strings.promptRequestClear || 'Clear')
+			);
+			$list.append($item);
+		});
 		var $badge = $panel.find('.ubai-prq__badge');
-		if (g_promptRequestsPanelItems.length) {
-			$badge.text(String(g_promptRequestsPanelItems.length)).show();
-		} else {
-			$badge.hide();
-		}
+		$badge.text(String(g_promptRequestsPanelItems.length)).show();
 		updatePromptResultsToolbarButton();
 	}
 
 	function openPromptRequestsPanel() {
 		var $panel = ensurePromptRequestsPanel();
-		renderPromptRequestsPanel();
+		renderPromptRequestsPanel({ hideIfEmpty: false });
 		$panel.addClass('is-open');
 	}
 

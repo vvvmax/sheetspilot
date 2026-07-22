@@ -115,6 +115,13 @@ OpenAI Privacy Policy: https://openai.com/policies/privacy-policy
 
 == Change-log ==
 
+= 1.0.4 =
+
+* Fix: Fixed product add
+* Fix: Fixed image edit dialog not opened bug
+* Change: the request dialog now closes when no requets found 
+
+
 = 1.0.3 =
 
 * Fixed image generation

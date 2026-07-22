@@ -416,6 +416,7 @@ class SheetsPilotQueryProcessing
 					update_post_meta($new_post_id, '_download_limit', -1);
 					update_post_meta($new_post_id, '_download_expiry', -1);
 					update_post_meta($new_post_id, '_stock_status', 'instock');
+					wp_set_object_terms($new_post_id, 'simple', 'product_type');
 				}
 			}
 
