@@ -25,8 +25,11 @@
 		var sidebarPromptSelector = '#ubai_prompt_input';
 		var imagePromptSelector = '#ubai_image_prompt_text';
 		var cellRulesPromptSelector = '#ubai_cell_rules_prompt';
-		var clonedClassSelector = 'sheetspilot_modal_cloned_preview';
 		var activeCellClassSelector = 'is-active-cell';
+		// prompt replace dialog: before/after compare slider instance (assets/js/before_after_image.js)
+		var prBeforeAfterInstance = null;
+		var prCompareBtnDefaultLabel = '';
+		var prCompareBtnDefaultTitle = '';
 		// prompt history panel refs
 		var $promptHistoryPanel, $promptHistoryBack, $promptHistorySearch, $promptHistoryList, $promptHistoryListWrap, $promptHistoryCount, $filterAll, $filterSaved, $promptHistoryClearBtn;
 		var promptHistoryFilter = 'all';
@@ -2200,8 +2203,8 @@
 			unbindPromptReplaceDialogLayoutListeners();
 			switchPromptReplaceDialogToTextMode();
 
-			// hide cloned image
-			$('.' + clonedClassSelector).empty();
+			// tear down any active before/after compare slider
+			resetPromptReplaceDialogCompare();
 
 			prDialogUserDragged = false;
 			$prDialog.css({ maxHeight: '' }).hide();
@@ -2969,7 +2972,78 @@
 		}
 
 		/**
-		 * Compare generated image with existed
+		 * Build the before/after drag-compare slider inside the image preview:
+		 * prepends the original (pre-edit) image as the "before" layer in front
+		 * of the untouched .preview-img ("after" layer), then hands the pair to
+		 * SheetsPilotBeforeAfter (assets/js/before_after_image.js).
+		 */
+		function buildPromptReplaceDialogCompareView() {
+
+			if (!$prImagePreview.length || typeof window.SheetsPilotBeforeAfter !== 'function') {
+				return;
+			}
+
+			var $targetCell = getPromptReplaceDialogTargetCell();
+			var afterUrl = $prImagePreview.find('.unlimitedai-plugin__prompt-replace-dialog__preview-img').attr('src') || '';
+			var beforeUrl = $targetCell && $targetCell.length ? ($targetCell.find('.editor_container img').attr('src') || '') : '';
+
+			if (!beforeUrl || !afterUrl || beforeUrl === afterUrl) {
+				return;
+			}
+
+			resetPromptReplaceDialogCompare();
+
+			$prImagePreview.prepend($('<img/>', { src: beforeUrl, alt: '' }));
+			$prImagePreview.addClass('cocoen');
+
+			prBeforeAfterInstance = new window.SheetsPilotBeforeAfter($prImagePreview.get(0), {
+				direction: 'horizontal',
+				trigger: 'click',
+				initialPosition: 50
+			});
+
+			if (!prBeforeAfterInstance.beforeElement) {
+				// build failed (e.g. markup not as expected) - bail out cleanly
+				resetPromptReplaceDialogCompare();
+				return;
+			}
+
+			if ($prCompareImageBtn && $prCompareImageBtn.length) {
+				if (!prCompareBtnDefaultLabel) {
+					prCompareBtnDefaultLabel = $prCompareImageBtn.text();
+					prCompareBtnDefaultTitle = $prCompareImageBtn.attr('title') || '';
+				}
+				var exitLabel = (typeof sheetspilot !== 'undefined' && sheetspilot.editor && sheetspilot.editor.exitCompareImage)
+					? sheetspilot.editor.exitCompareImage
+					: 'Exit Compare';
+				$prCompareImageBtn.addClass('is-active').text(exitLabel).attr('title', exitLabel);
+			}
+		}
+
+		/**
+		 * Tear down the before/after compare slider (if active) and restore the
+		 * single-image preview. Safe to call unconditionally.
+		 */
+		function resetPromptReplaceDialogCompare() {
+
+			if (prBeforeAfterInstance && typeof prBeforeAfterInstance.destroy === 'function') {
+				prBeforeAfterInstance.destroy();
+			}
+			prBeforeAfterInstance = null;
+
+			if ($prImagePreview && $prImagePreview.length) {
+				$prImagePreview.removeClass('cocoen');
+				$prImagePreview.children('div').remove();
+				$prImagePreview.children('.cocoen-drag').remove();
+			}
+
+			if ($prCompareImageBtn && $prCompareImageBtn.length && prCompareBtnDefaultLabel) {
+				$prCompareImageBtn.removeClass('is-active').text(prCompareBtnDefaultLabel).attr('title', prCompareBtnDefaultTitle);
+			}
+		}
+
+		/**
+		 * Compare button click: toggle the before/after drag-compare slider.
 		 */
 		function onPromptReplaceDialogCompareImageClick() {
 
@@ -2977,20 +3051,11 @@
 				return;
 			}
 
-			var requestId = $prDialog.data('pendingImageRequestId');
-			var postId = $prDialog.data('pendingImagePostId');
-			var column = $prDialog.data('pendingImageColumn');
-			var $targetCell = getPromptReplaceDialogTargetCell();
-			var previewUrl = $prImagePreview.find('.unlimitedai-plugin__prompt-replace-dialog__preview-img').attr('src') || '';
-			var requestId = $prDialog.data('pendingImageRequestId');
-
-			$('.' + clonedClassSelector).empty();
-
-			var cloned_preview = $prImagePreview.clone();
-			cloned_preview.addClass(clonedClassSelector);
-			cloned_preview.find('.unlimitedai-plugin__prompt-replace-dialog__preview-img').attr('src', $targetCell.find('.editor_container img').attr('src'));
-			$prImagePreview.after(cloned_preview);
-
+			if (prBeforeAfterInstance) {
+				resetPromptReplaceDialogCompare();
+			} else {
+				buildPromptReplaceDialogCompareView();
+			}
 		}
 
 		/**
@@ -3247,6 +3312,7 @@
 				return;
 			}
 			previewMeta = previewMeta && typeof previewMeta === 'object' ? previewMeta : {};
+			resetPromptReplaceDialogCompare();
 			$prDialog.find('.unlimitedai-plugin__prompt-replace-dialog__text').hide();
 			var $previewImg = $prImagePreview.show().find('.unlimitedai-plugin__prompt-replace-dialog__preview-img');
 			// Drop the previous request's image immediately: a slow or failed load of the

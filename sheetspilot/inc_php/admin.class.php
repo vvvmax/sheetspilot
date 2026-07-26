@@ -371,6 +371,7 @@ class SheetsPilot_PluginAdmin{
 				SheetsPilotHelper::addStyle("unlimited_ai_admin");
 				SheetsPilotHelper::addStyle("unlimited_ai_postseditor_styles");
 				SheetsPilotHelper::addStyle("content-rules-dialog");
+				SheetsPilotHelper::addStyle("before_after_image");
 				$codemirror_css_url_pe = SheetsPilotGlobals::$urlPlugin . 'assets/libraries/codemirror-custom/codemirror-custom.css';
 				SheetsPilotHelper::addStyleAbsoluteUrl($codemirror_css_url_pe, 'sheetspilot' . '-codemirror');
 				SheetsPilotHelper::addScript("unlimited_ai_provider_admin");
@@ -401,8 +402,9 @@ class SheetsPilot_PluginAdmin{
 				SheetsPilotHelper::addScript("sheetspilot_variable_product");				
 				SheetsPilotHelper::addScript("sheetspilot_notification_fn");				
 				SheetsPilotHelper::addScript("sheetspilot_repeater_editor");				
-				SheetsPilotHelper::addScript("sheetspilot_top_filtering_bar");				
+				SheetsPilotHelper::addScript("sheetspilot_top_filtering_bar");
 				SheetsPilotHelper::addScript("unlimited_ai_postseditor");
+				SheetsPilotHelper::addScript("before_after_image");
 				SheetsPilotHelper::addScript( "unlimited_ai_prompts", null, "assets/js", false, true );
 				SheetsPilotHelper::addScript("unlimited_ai_cell_processing");
 				SheetsPilotHelper::addScript("unlimited_ai_content_rules");
