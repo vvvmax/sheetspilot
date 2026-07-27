@@ -1034,9 +1034,10 @@ class SheetsPilotCellEditor
 				'name'  => 'elementor_active',
 				'type'  => 'switch',
 				'dev_type'        => 'meta_field',
+				'column_search'  => 'filter',
 				'source' => [	 
-					['id' => 'no',   'name' => __('No', 'sheetspilot' ) ],
-					['id' => 'yes', 'name' => __('Yes', 'sheetspilot' ) ],					
+					['id' => 'no',   'name' => __('Non Elementor', 'sheetspilot' ) ],
+					['id' => 'yes', 'name' => __('Elementor', 'sheetspilot' ) ],					
 				],
 			]] : []
 			
