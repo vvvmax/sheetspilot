@@ -6725,6 +6725,18 @@ class SheetsPilot_CellProcessing {
 				})
 
 			}
+			if (objParentTH.attr('data-name') === 'elementor_active') {
+				objParentTH.attr('data-type', 'switch');
+				select_list = [];
+				var elementorColDef = (self.$colData || []).find(function (item) {
+					return item.name === 'elementor_active';
+				});
+				if (elementorColDef && elementorColDef.source) {
+					jQuery.each(elementorColDef.source, function (index, option) {
+						select_list.push({ 'label': option.name, 'index': option.id, 'text': option.name });
+					});
+				}
+			}
 
 			jQuery(self.g_columnFilterDropdownFilterContainerClass, objParentTH).empty();
 

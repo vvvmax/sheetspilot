@@ -122,15 +122,19 @@ class SheetsPilotQueryProcessing
 
 		// ordering
 		if ($this->orderby && $this->order) {
-			$args['orderby'] = $this->orderby;
-			$args['order'] = $this->order;
+			if ($this->orderby === 'elementor_active') {
+				$args = $this->applyElementorActiveSortToArgs($args, $this->order);
+			} else {
+				$args['orderby'] = $this->orderby;
+				$args['order'] = $this->order;
 
-			if (substr_count($this->orderby, 'acf_') > 0 || substr_count($this->orderby, 'plugins_') > 0) {
-				$filtered_feild_name = str_replace('acf_', '', $this->orderby);
-				$filtered_feild_name = str_replace('plugins_', '', $filtered_feild_name);
-				$args['orderby'] = 'meta_value';
+				if (substr_count($this->orderby, 'acf_') > 0 || substr_count($this->orderby, 'plugins_') > 0) {
+					$filtered_feild_name = str_replace('acf_', '', $this->orderby);
+					$filtered_feild_name = str_replace('plugins_', '', $filtered_feild_name);
+					$args['orderby'] = 'meta_value';
 
-				$args['meta_key'] = $filtered_feild_name;
+					$args['meta_key'] = $filtered_feild_name;
+				}
 			}
 		}
 
@@ -242,6 +246,10 @@ class SheetsPilotQueryProcessing
 					'terms' => $this->filtering_values,
 				];
 			}
+
+			if ($this->column_name === 'elementor_active' && $this->column_type === 'switch') {
+				$args = $this->applyElementorActiveFilterToArgs($args, $this->filtering_values);
+			}
 		}
 
 
@@ -343,6 +351,10 @@ class SheetsPilotQueryProcessing
 							'terms' => $s_column_query['value'],
 						];
 					}
+
+					if ($s_column_query['name'] === 'elementor_active' && $s_column_query['column_type'] === 'switch') {
+						$inner_args = $this->applyElementorActiveFilterToArgs($inner_args, $s_column_query['value']);
+					}
 					$inner_args['fields'] = 'ids';
 					$inner_args['showposts'] = -1;
 
@@ -376,7 +388,7 @@ class SheetsPilotQueryProcessing
 
 
 		$this->args = $args;
-		$all_posts = get_posts($args);
+		$all_posts = $this->runPostsQuery($args);
 
 		// add new row functionality
 		if ($this->is_new_row) {
@@ -1053,5 +1065,114 @@ class SheetsPilotQueryProcessing
 		}
 
 		return [];
+	}
+
+	/**
+	 * Apply Elementor active column filter values to a WP_Query args array.
+	 *
+	 * @param array $args           Query args.
+	 * @param array $filter_values  Selected values: 'yes' (Elementor) and/or 'no' (Non Elementor).
+	 * @return array
+	 */
+	private function applyElementorActiveFilterToArgs($args, $filter_values)
+	{
+		if (empty($filter_values) || ! is_array($filter_values)) {
+			return $args;
+		}
+
+		$filter_values = array_values(array_intersect($filter_values, ['yes', 'no']));
+		if (count($filter_values) === 0 || count($filter_values) === 2) {
+			return $args;
+		}
+
+		if (! isset($args['meta_query'])) {
+			$args['meta_query'] = [];
+		}
+
+		if (in_array('yes', $filter_values, true)) {
+			$args['meta_query'][] = [
+				'key'     => '_elementor_edit_mode',
+				'value'   => 'builder',
+				'compare' => '=',
+			];
+		} else {
+			$args['meta_query'][] = [
+				'relation' => 'OR',
+				[
+					'key'     => '_elementor_edit_mode',
+					'compare' => 'NOT EXISTS',
+				],
+				[
+					'key'     => '_elementor_edit_mode',
+					'value'   => 'builder',
+					'compare' => '!=',
+				],
+			];
+		}
+
+		return $args;
+	}
+
+	/**
+	 * Sort by Elementor active column: ASC = Non Elementor first, DESC = Elementor first.
+	 *
+	 * @param array  $args  Query args.
+	 * @param string $order Sort direction: asc|desc.
+	 * @return array
+	 */
+	private function applyElementorActiveSortToArgs($args, $order)
+	{
+		$sort_order = strtoupper($order) === 'DESC' ? 'DESC' : 'ASC';
+		$args['sheetspilot_elementor_active_sort'] = $sort_order;
+		$args['orderby'] = 'ID';
+		$args['order'] = 'DESC';
+		$args['suppress_filters'] = false;
+
+		return $args;
+	}
+
+	/**
+	 * Run get_posts(), attaching a LEFT JOIN sort for Elementor when requested.
+	 *
+	 * @param array $args Query args.
+	 * @return array
+	 */
+	private function runPostsQuery($args)
+	{
+		if (! empty($args['sheetspilot_elementor_active_sort'])) {
+			add_filter('posts_clauses', array($this, 'filterPostsClausesForElementorActiveSort'), 10, 2);
+		}
+
+		$posts = get_posts($args);
+
+		if (! empty($args['sheetspilot_elementor_active_sort'])) {
+			remove_filter('posts_clauses', array($this, 'filterPostsClausesForElementorActiveSort'), 10);
+		}
+
+		return $posts;
+	}
+
+	/**
+	 * Order all posts by Elementor status without excluding posts missing the meta key.
+	 *
+	 * @param array     $clauses SQL clauses.
+	 * @param \WP_Query $query   Current query.
+	 * @return array
+	 */
+	public function filterPostsClausesForElementorActiveSort($clauses, $query)
+	{
+		$sort_order = $query->get('sheetspilot_elementor_active_sort');
+		if (! $sort_order) {
+			return $clauses;
+		}
+
+		global $wpdb;
+
+		$sort_order = strtoupper($sort_order) === 'DESC' ? 'DESC' : 'ASC';
+		$clauses['join'] .= " LEFT JOIN {$wpdb->postmeta} AS sheetspilot_elementor_sort ON ({$wpdb->posts}.ID = sheetspilot_elementor_sort.post_id AND sheetspilot_elementor_sort.meta_key = '_elementor_edit_mode')";
+		$clauses['groupby'] = "{$wpdb->posts}.ID";
+		$clauses['orderby'] = "(CASE WHEN sheetspilot_elementor_sort.meta_value = 'builder' THEN 1 ELSE 0 END) {$sort_order}, {$wpdb->posts}.ID DESC";
+
+		return $clauses;
 	}
 }

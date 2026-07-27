@@ -115,6 +115,11 @@ OpenAI Privacy Policy: https://openai.com/policies/privacy-policy
 
 == Change-log ==
 
+= 1.0.6 =
+
+* Feature: added sorting and filtering on the Elementor column.
+* Feature: added before/after after image edit with AI 
+
 = 1.0.4 =
 
 * Fix: Fixed product add
