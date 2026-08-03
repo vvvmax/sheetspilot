@@ -960,7 +960,7 @@ class SheetsPilotCellEditor
 				'type'        => 'textarea',
 				'dev_type'        => 'text',
 				'rows'        => 2,
-				'orderable'   => false,
+				'orderable'   => true,
 				'switchable'   => false,
 				'searchable'  => true,
 				'column_search'  => 'text',

@@ -5433,9 +5433,17 @@ function SheetsPilot_PostsEditorView(action_prefix, action_name) {
 		switch (response.action) {
 			case "show_message":
 				var messageText = response.data || "";
-				if (messageText) {
-					updatePromptTextResponse(messageText);
-					g_doublyAdmin.showSuccessMessage(messageText);
+				var reasonText = response.reason || "";
+				if (typeof messageText !== "string") {
+					messageText = "";
+				}
+				if (typeof reasonText !== "string") {
+					reasonText = "";
+				}
+				var displayText = reasonText || messageText;
+				if (displayText) {
+					updatePromptTextResponse(displayText);
+					g_doublyAdmin.showSuccessMessage(displayText);
 				}
 
 				return;
@@ -6612,16 +6620,11 @@ function SheetsPilot_PostsEditorView(action_prefix, action_name) {
 		orderingColumn = cell_name;
 		orderingColumnType = cell_type;
 
-		if ($clicked.hasClass('asc') == true) {
-			sortingDirection = 'asc';
-		}
-
-
+		var sortingDirection = 'asc';
 		if ($clicked.hasClass('desc') == true) {
 			sortingDirection = 'desc';
 		}
-
-
+		orderingDirection = sortingDirection;
 
 		g_doublyAdmin.setAjaxLoaderID(g_ajaxLoaderSearch);
 		var data =

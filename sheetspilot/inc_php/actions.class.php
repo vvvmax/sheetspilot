@@ -216,11 +216,65 @@ class SheetsPilot_AjaxActions
 				$error_payload['error_detail_text'] = $this->lastApplyPromptErrorDetailText;
 				$message = 'OpenAI error: ' . $this->lastApplyPromptErrorDetailText;
 			}
+			if ( $this->lastApplyPromptErrorLogId > 0 ) {
+				$message = $this->appendLogIdToErrorMessage( $message, $this->lastApplyPromptErrorLogId );
+			}
 			$this->lastApplyPromptErrorLogId = 0;
 			$this->lastApplyPromptErrorDetailText = '';
 		}
 
 		SheetsPilotHelper::ajaxResponseError($message, $error_payload);
+	}
+
+	/**
+	 * Append "log id: N" to an error message when missing.
+	 *
+	 * @param string $message Error message.
+	 * @param int    $log_id  Request log row id.
+	 * @return string
+	 */
+	private function appendLogIdToErrorMessage( $message, $log_id ) {
+		$log_id  = (int) $log_id;
+		$message = (string) $message;
+		if ( $log_id <= 0 ) {
+			return $message;
+		}
+		if ( preg_match( '/\blog\s*id\s*:/i', $message ) ) {
+			return $message;
+		}
+
+		return rtrim( $message ) . ' log id: ' . $log_id;
+	}
+
+	/**
+	 * Persist or update the request log as response_action "error" and remember the id for the AJAX error payload.
+	 *
+	 * @param string               $prompt_text     Prompt text.
+	 * @param array|string         $table_data      Table/cell payload.
+	 * @param string               $error_message   Error text stored in response_data.
+	 * @param int                  $existing_log_id Existing log row to convert to error (0 = insert new).
+	 * @param array<string,mixed>|null $prompt_metadata Optional metadata for a new insert.
+	 * @return int Log row id, or 0 when logging is unavailable.
+	 */
+	private function rememberApplyPromptErrorLog( $prompt_text, $table_data, $error_message, $existing_log_id = 0, $prompt_metadata = null ) {
+		$existing_log_id = (int) $existing_log_id;
+
+		if ( $existing_log_id > 0 && class_exists( 'SheetsPilot_RequestLog', false ) ) {
+			SheetsPilot_RequestLog::markAsError( $existing_log_id, $error_message );
+			$this->lastApplyPromptErrorLogId = $existing_log_id;
+			return $existing_log_id;
+		}
+
+		$log_id = (int) $this->persistApplyPromptRequestLog(
+			$prompt_text,
+			$table_data,
+			'error',
+			$error_message,
+			$prompt_metadata
+		);
+		$this->lastApplyPromptErrorLogId = $log_id;
+
+		return $log_id;
 	}
 
 	/**
@@ -553,6 +607,62 @@ class SheetsPilot_AjaxActions
 		}
 
 		return $action . ': data considered empty';
+	}
+
+	/**
+	 * Human-readable reason when apply_prompt falls back to show_message (no cell write).
+	 *
+	 * @param string $response_type Parsed GPT response type (data|text|pending_image|'').
+	 * @param string $mapping_path  Pipeline mapping path.
+	 * @param mixed  $data_value    Mapped value that would be shown.
+	 * @return string
+	 */
+	private function getApplyPromptShowMessageReason( $response_type, $mapping_path, $data_value ) {
+		$raw = '';
+		if ( is_string( $data_value ) ) {
+			$raw = trim( $data_value );
+		} elseif ( is_array( $data_value ) || is_object( $data_value ) ) {
+			$encoded = wp_json_encode( $data_value );
+			$raw     = is_string( $encoded ) ? trim( $encoded ) : '';
+		}
+
+		$looks_like_json = ( $raw !== '' && ( $raw[0] === '{' || $raw[0] === '[' ) );
+
+		if ( (string) $response_type === 'text' && $looks_like_json ) {
+			return __( 'The AI returned what looks like cell data, but it could not be parsed as JSON, so nothing was written to the cell.', 'sheetspilot' );
+		}
+
+		if ( (string) $response_type === 'text' ) {
+			return __( 'The AI returned a plain text reply instead of structured cell data, so nothing was written to the cell.', 'sheetspilot' );
+		}
+
+		if ( (string) $response_type === '' || (string) $response_type === 'unknown' ) {
+			return __( 'The AI response type was missing or unrecognized, so nothing was written to the cell.', 'sheetspilot' );
+		}
+
+		if ( $mapping_path === 'data_value_empty_before_fallback' || $mapping_path === 'fallback_raw_parse_failed' ) {
+			return __( 'The AI response could not be converted into cell content, so nothing was written to the cell.', 'sheetspilot' );
+		}
+
+		return __( 'The AI response could not be applied to the cell.', 'sheetspilot' );
+	}
+
+	/**
+	 * Normalize show_message payload length for length checks.
+	 *
+	 * @param mixed $data Client data for show_message.
+	 * @return string
+	 */
+	private function stringifyApplyPromptShowMessageData( $data ) {
+		if ( is_string( $data ) ) {
+			return $data;
+		}
+		if ( is_array( $data ) || is_object( $data ) ) {
+			$encoded = wp_json_encode( $data );
+			return is_string( $encoded ) ? $encoded : '';
+		}
+
+		return SheetsPilotFunctions::toString( $data );
 	}
 
 	/**
@@ -1071,9 +1181,9 @@ class SheetsPilot_AjaxActions
 				} else {
 					$mapping_path = 'fallback_raw_parse_failed';
 
-					SheetsPilotFunctions::throwError(
-						__( 'Error parsing response post content data. Please check with the devlopers', 'sheetspilot' )
-					);
+					$error_text = __( 'Error parsing response post content data. Please check with the developers', 'sheetspilot' );
+					$this->rememberApplyPromptErrorLog( $prompt_text, $table_data, $error_text );
+					SheetsPilotFunctions::throwError( $error_text );
 		
 				}
 			}
@@ -1125,25 +1235,60 @@ class SheetsPilot_AjaxActions
 			);
 		}
 
+		// show_message: explain why nothing was written; reject huge payloads as errors.
+		$show_message_suppressed = false;
+		$show_message_reason     = '';
+		$show_message_raw_len    = 0;
+		if ( $results['action'] === 'show_message' ) {
+			$show_message_reason  = $this->getApplyPromptShowMessageReason( $responseType, $mapping_path, $dataValue );
+			$raw_show_message     = $this->stringifyApplyPromptShowMessageData( $results['data'] );
+			$show_message_raw_len = strlen( $raw_show_message );
+			$results['reason']    = $show_message_reason;
+
+			if ( $show_message_raw_len > 200 ) {
+				$show_message_suppressed = true;
+				$results['data']         = $show_message_reason;
+			} elseif ( $raw_show_message !== '' ) {
+				$results['data'] = $show_message_reason . "\n\n" . $raw_show_message;
+			} else {
+				$results['data'] = $show_message_reason;
+			}
+		}
+
 		$output_branch = ! empty( $display_value ) ? 'insert_show_pair' : 'raw_data_value';
 		$this->logApplyPromptSession(
 			'applyPromptPipeline',
 			array(
-				'response_type'         => (string) $responseType,
-				'mapping_path'          => $mapping_path,
-				'used_fallback_raw'       => $used_fallback_raw,
-				'output_branch'         => $output_branch,
-				'action'                => (string) $results['action'],
-				'cell_content_type'     => (string) $cell_content_type,
-				'is_post_content_cell'  => $is_post_content_cell,
-				'is_typed_display_cell' => $is_typed_display_cell,
-				'instruction_summary'   => $this->truncateSessionLogText( $instruction_summary, 80 ),
-				'mapped_data_value'     => $this->summarizeValueForApplyPromptSessionLog( $dataValue ),
-				'client_data'           => $this->summarizeValueForApplyPromptSessionLog( $results['data'] ),
-				'empty_data_rejected'   => $this->isApplyPromptClientDataEmpty( $results['data'], $results['action'] ),
-				'empty_data_reason'     => $this->getApplyPromptClientDataEmptyReason( $results['data'], $results['action'] ),
+				'response_type'            => (string) $responseType,
+				'mapping_path'             => $mapping_path,
+				'used_fallback_raw'        => $used_fallback_raw,
+				'output_branch'            => $output_branch,
+				'action'                   => (string) $results['action'],
+				'cell_content_type'        => (string) $cell_content_type,
+				'is_post_content_cell'     => $is_post_content_cell,
+				'is_typed_display_cell'    => $is_typed_display_cell,
+				'instruction_summary'      => $this->truncateSessionLogText( $instruction_summary, 80 ),
+				'mapped_data_value'        => $this->summarizeValueForApplyPromptSessionLog( $dataValue ),
+				'client_data'              => $this->summarizeValueForApplyPromptSessionLog( $results['data'] ),
+				'empty_data_rejected'      => $this->isApplyPromptClientDataEmpty( $results['data'], $results['action'] ),
+				'empty_data_reason'        => $this->getApplyPromptClientDataEmptyReason( $results['data'], $results['action'] ),
+				'show_message_reason'      => $show_message_reason,
+				'show_message_raw_len'     => $show_message_raw_len,
+				'show_message_suppressed'  => $show_message_suppressed,
 			)
 		);
+
+		if ( $show_message_suppressed ) {
+			$this->logApplyPromptSession(
+				'applyPromptShowMessageSuppressed',
+				array(
+					'reason'  => $show_message_reason,
+					'raw_len' => $show_message_raw_len,
+				)
+			);
+			$this->rememberApplyPromptErrorLog( $prompt_text, $table_data, $show_message_reason );
+			SheetsPilotFunctions::throwError( $show_message_reason );
+		}
 
 
 		// Attach last request/response for debug display (formatted in PHP for readability).
@@ -1236,6 +1381,7 @@ class SheetsPilot_AjaxActions
 			$error_text = isset( SheetsPilotGlobals::$editorScriptLocalization['apply_prompt_text_1'] )
 				? SheetsPilotGlobals::$editorScriptLocalization['apply_prompt_text_1']
 				: __( 'Apply prompt did not return replacement text.', 'sheetspilot' );
+			$this->rememberApplyPromptErrorLog( $prompt_text, $table_data, $error_text, $log_id, $prompt_metadata );
 			SheetsPilotFunctions::throwError( $error_text );
 		}
 

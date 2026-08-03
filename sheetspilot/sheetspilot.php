@@ -88,6 +88,7 @@ add_action('init', function() {
 	}else{
 		
 		define("SHEETSPILOT_VERSION","1.0.6");
+		define("SHEETSPILOT_PRO_VERSION_COMPATABE_FROM","1.0.4");
 		
 		$current_folder = dirname( __FILE__ );
 

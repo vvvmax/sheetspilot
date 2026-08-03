@@ -547,11 +547,13 @@ class SheetsPilot_PluginAdmin{
 
 		$free_version = defined( 'SHEETSPILOT_FREE_VERSION' ) ? (string) SHEETSPILOT_FREE_VERSION : '';
 		$pro_version  = defined( 'SHEETSPILOT_PRO_VERSION' ) ? (string) SHEETSPILOT_PRO_VERSION : '';
+		$pro_min      = defined( 'SHEETSPILOT_PRO_VERSION_COMPATABE_FROM' ) ? (string) SHEETSPILOT_PRO_VERSION_COMPATABE_FROM : $free_version;
 		$message = sprintf(
-			/* translators: 1: free version, 2: pro version */
-			__( 'SheetsPilot and SheetsPilot Pro versions must match. Free: %1$s, Pro: %2$s. Pro is disabled until versions match.', 'sheetspilot' ),
+			/* translators: 1: free version, 2: pro version, 3: minimum compatible pro version */
+			__( 'SheetsPilot Pro is incompatible with this SheetsPilot version. Free: %1$s, Pro: %2$s. Pro must be between %3$s and %1$s. Pro is disabled until versions are compatible.', 'sheetspilot' ),
 			$free_version !== '' ? $free_version : 'unknown',
-			$pro_version !== '' ? $pro_version : 'unknown'
+			$pro_version !== '' ? $pro_version : 'unknown',
+			$pro_min !== '' ? $pro_min : 'unknown'
 		);
 		?>
 		<tr class="plugin-update-tr active">
