@@ -125,7 +125,19 @@ class SheetsPilotQueryProcessing
 			if ($this->orderby === 'elementor_active') {
 				$args = $this->applyElementorActiveSortToArgs($args, $this->order);
 			} else {
-				$args['orderby'] = $this->orderby;
+				// Map editor column names to WP_Query orderby values.
+				$orderby_map = array(
+					'id'            => 'ID',
+					'ID'            => 'ID',
+					'post_title'    => 'title',
+					'post_date'     => 'date',
+					'post_name'     => 'name',
+					'post_author'   => 'author',
+					'post_modified' => 'modified',
+				);
+				$args['orderby'] = isset( $orderby_map[ $this->orderby ] )
+					? $orderby_map[ $this->orderby ]
+					: $this->orderby;
 				$args['order'] = $this->order;
 
 				if (substr_count($this->orderby, 'acf_') > 0 || substr_count($this->orderby, 'plugins_') > 0) {

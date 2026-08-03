@@ -115,6 +115,12 @@ OpenAI Privacy Policy: https://openai.com/policies/privacy-policy
 
 == Change-log ==
 
+= 1.0.7 =
+
+* Feature: added request log rotation so the database won't bloat.
+* Fix: improved error logging 
+* Fix: fixed the sort by title feature
+
 = 1.0.6 =
 
 * Feature: added sorting and filtering on the Elementor column.

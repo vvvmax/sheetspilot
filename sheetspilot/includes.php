@@ -53,7 +53,17 @@ function load_plugin( $main_file_path ) {
 			$pro_version       = isset( $pro_plugin_header['Version'] ) ? (string) $pro_plugin_header['Version'] : '';
 		}
 
-		$is_pro_version_match = ( $free_version !== '' && $pro_version !== '' && $free_version === $pro_version );
+		$pro_min_compatible = defined( 'SHEETSPILOT_PRO_VERSION_COMPATABE_FROM' )
+			? (string) SHEETSPILOT_PRO_VERSION_COMPATABE_FROM
+			: $free_version;
+
+		// Compatible when Pro is between min compatible version and the free plugin version (inclusive).
+		$is_pro_version_match = (
+			$free_version !== ''
+			&& $pro_version !== ''
+			&& version_compare( $pro_version, $pro_min_compatible, '>=' )
+			&& version_compare( $pro_version, $free_version, '<=' )
+		);
 
 		$external_pro_plugin_folder = SHEETS_WPPLUGIN_DIR . 'sheetspilot-premium/';
 		$external_pro_inc_php_folder = $external_pro_plugin_folder . 'inc_php/';
