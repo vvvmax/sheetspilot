@@ -93,7 +93,10 @@ class SheetsPilot_UseChatGPT{
 					"content" => $prompt
 				],
 			],
-	  
+			// Apply-prompt always expects a JSON object payload.
+			'response_format' => array(
+				'type' => 'json_object',
+			),
 		];
 		
 		self::$last_request = $arrRequest;

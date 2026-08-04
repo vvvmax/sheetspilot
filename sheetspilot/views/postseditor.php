@@ -306,7 +306,14 @@ class SheetsPilot_PluginViewWelcome
 						</div>
 						<div class="unlimitedai-plugin__intro-naming">
 							<div class="unlimitedai-plugin__intro-version-group">
-								<div class="unlimitedai-plugin__intro-version">v<?php echo esc_html(SHEETSPILOT_VERSION); ?></div>
+								<?php
+								$dev_build = ( defined( 'SHEETSPILOT_DEV_BUILD' ) ) ? trim( (string) SHEETSPILOT_DEV_BUILD ) : '';
+								$version_label = 'v' . SHEETSPILOT_VERSION;
+								if ( $dev_build !== '' ) {
+									$version_label .= ' b' . $dev_build;
+								}
+								?>
+								<div class="unlimitedai-plugin__intro-version"><?php echo esc_html( $version_label ); ?></div>
 								<?php if (SheetsPilotGlobals::$hasProFolder == true) : ?>
 									<?php if (SheetsPilotGlobals::$isPro) : ?>
 										<span class="unlimitedai-plugin__intro-license-badge unlimitedai-plugin__intro-license-badge--pro"><?php esc_html_e('PRO', 'sheetspilot'); ?></span>

@@ -159,33 +159,99 @@ class SheetsPilot_RequestLog {
 			),
 			array( '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%d' )
 		);
-		return $inserted ? (int) $wpdb->insert_id : false;
+
+		if ( ! $inserted ) {
+			return false;
+		}
+
+		self::rotate();
+
+		return (int) $wpdb->insert_id;
+	}
+
+	/**
+	 * Keep the newest REQUEST_LOG_KEEP rows. Runs only when the table has reached
+	 * keep + REQUEST_LOG_ROTATION_BUFFER (e.g. 210), then deletes the oldest excess.
+	 *
+	 * @return void
+	 */
+	public static function rotate() {
+		global $wpdb;
+
+		$table  = SheetsPilotGlobals::$tableLogs;
+		$keep   = (int) SheetsPilotGlobals::REQUEST_LOG_KEEP;
+		$buffer = (int) SheetsPilotGlobals::REQUEST_LOG_ROTATION_BUFFER;
+
+		if ( $keep < 1 ) {
+			$keep = 200;
+		}
+		if ( $buffer < 1 ) {
+			$buffer = 10;
+		}
+
+		$threshold = $keep + $buffer;
+		$table_sql = esc_sql( $table );
+
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table_sql}" );
+
+		if ( $count < $threshold ) {
+			return;
+		}
+
+		$delete_count = $count - $keep;
+		if ( $delete_count < 1 ) {
+			return;
+		}
+
+		$wpdb->query(
+			$wpdb->prepare(
+				"DELETE FROM {$table_sql} ORDER BY id ASC LIMIT %d",
+				$delete_count
+			)
+		);
+		// phpcs:enable
 	}
 
 	/**
 	 * Get the last N log entries for the request/response log view.
 	 *
-	 * @param int    $limit           Max number of rows (default 100).
+	 * @param int    $limit           Max number of rows (default REQUEST_LOG_DISPLAY).
 	 * @param string $response_action Optional action filter (e.g. error, pending_image).
+	 * @param string $order_mode      id_desc (default) or action_error_first.
 	 * @return array List of rows (associative arrays).
 	 */
-	public static function getLast( $limit = 100, $response_action = '' ) {
+	public static function getLast( $limit = null, $response_action = '', $order_mode = 'id_desc' ) {
 		global $wpdb;
 		$table = SheetsPilotGlobals::$tableLogs;
-		$table = esc_sql($table);
+		$table = esc_sql( $table );
 
+		if ( $limit === null ) {
+			$limit = (int) SheetsPilotGlobals::REQUEST_LOG_DISPLAY;
+		}
 		$limit = absint( $limit );
 		if ( $limit < 1 ) {
-			$limit = 100;
+			$limit = (int) SheetsPilotGlobals::REQUEST_LOG_DISPLAY;
 		}
 
 		$response_action = sanitize_key( (string) $response_action );
+		$order_mode      = sanitize_key( (string) $order_mode );
+		if ( $order_mode !== 'action_error_first' ) {
+			$order_mode = 'id_desc';
+		}
 
-		// phpcs:disable
+		if ( $order_mode === 'action_error_first' ) {
+			// Errors first, then other actions A–Z, newest within each group.
+			$order_sql = "ORDER BY CASE WHEN response_action = 'error' THEN 0 ELSE 1 END ASC, response_action ASC, id DESC";
+		} else {
+			$order_sql = 'ORDER BY id DESC';
+		}
+
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 		if ( $response_action !== '' ) {
 			$rows = $wpdb->get_results(
 				$wpdb->prepare(
-					"SELECT id, prompt, cell_value, request, response, response_data, response_action, metadata, userid, date FROM {$table} WHERE response_action = %s ORDER BY id DESC LIMIT %d",
+					"SELECT id, prompt, cell_value, request, response, response_data, response_action, metadata, userid, date FROM {$table} WHERE response_action = %s {$order_sql} LIMIT %d",
 					$response_action,
 					$limit
 				),
@@ -194,13 +260,14 @@ class SheetsPilot_RequestLog {
 		} else {
 			$rows = $wpdb->get_results(
 				$wpdb->prepare(
-					"SELECT id, prompt, cell_value, request, response, response_data, response_action, metadata, userid, date FROM {$table} ORDER BY id DESC LIMIT %d",
+					"SELECT id, prompt, cell_value, request, response, response_data, response_action, metadata, userid, date FROM {$table} {$order_sql} LIMIT %d",
 					$limit
 				),
 				ARRAY_A
 			);
 		}
-	 
+		// phpcs:enable
+
 		return is_array( $rows ) ? $rows : array();
 	}
 
@@ -455,5 +522,43 @@ class SheetsPilot_RequestLog {
 		}
 
 		return $preload;
+	}
+
+	/**
+	 * Mark an existing log row as an error (for failures after a success-path insert).
+	 *
+	 * @param int         $id            Log row id.
+	 * @param string|null $error_message Optional error text for response_data.
+	 * @return bool True when the row was updated.
+	 */
+	public static function markAsError( $id, $error_message = null ) {
+		global $wpdb;
+
+		$id = absint( $id );
+		if ( $id <= 0 ) {
+			return false;
+		}
+
+		$data   = array( 'response_action' => 'error' );
+		$format = array( '%s' );
+
+		if ( $error_message !== null ) {
+			if ( is_array( $error_message ) || is_object( $error_message ) ) {
+				$error_message = wp_json_encode( $error_message, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+			}
+			$data['response_data'] = (string) $error_message;
+			$format[]              = '%s';
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$updated = $wpdb->update(
+			SheetsPilotGlobals::$tableLogs,
+			$data,
+			array( 'id' => $id ),
+			$format,
+			array( '%d' )
+		);
+
+		return false !== $updated;
 	}
 }

@@ -26,6 +26,10 @@ if ( ! defined( 'SHEETSPILOT_INC' ) ) {
 	define( 'SHEETSPILOT_INC', true );
 }
 
+
+define("SHEETSPILOT_DEV_BUILD","2");
+
+
 if ( !function_exists( 'she_fs' ) ) {
 	
     // Create a helper function for easy SDK access.

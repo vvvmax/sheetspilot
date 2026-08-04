@@ -26,6 +26,8 @@ class SheetsPilot_ContentBlocks {
 	const BLOCK_PREFORMATTED  = 'preformatted';
 	const BLOCK_DETAILS       = 'details';
 	const BLOCK_MORE          = 'more';
+	const BLOCK_ACCORDION     = 'accordion';
+	const BLOCK_BUTTON        = 'button';
 
 	/**
 	 * Allowed block type names in the AI JSON tree.
@@ -43,6 +45,8 @@ class SheetsPilot_ContentBlocks {
 		self::BLOCK_PREFORMATTED,
 		self::BLOCK_DETAILS,
 		self::BLOCK_MORE,
+		self::BLOCK_ACCORDION,
+		self::BLOCK_BUTTON,
 	);
 
 	/**
@@ -440,6 +444,30 @@ class SheetsPilot_ContentBlocks {
 			case self::BLOCK_MORE:
 				return '<!--more-->';
 
+			case self::BLOCK_ACCORDION:
+				$items = self::get_block_accordion_items( $block_def );
+				$html  = '';
+				foreach ( $items as $item ) {
+					$inner = array();
+					foreach ( $item['blocks'] as $nested_def ) {
+						$nested_html = self::block_to_simple_html( $nested_def );
+						if ( $nested_html !== '' ) {
+							$inner[] = $nested_html;
+						}
+					}
+					$html .= '<details><summary>' . self::escape_text( $item['title'] ) . '</summary>' . implode( '', $inner ) . '</details>';
+				}
+				return $html;
+
+			case self::BLOCK_BUTTON:
+				$text = self::escape_text( self::get_block_text( $block_def ) );
+				$url  = self::get_block_button_url( $block_def );
+				$attrs = ' href="' . esc_url( $url ) . '"';
+				if ( self::get_block_button_open_in_new_tab( $block_def ) ) {
+					$attrs .= ' target="_blank" rel="noreferrer noopener"';
+				}
+				return '<p><a class="wp-block-button__link"' . $attrs . '>' . $text . '</a></p>';
+
 			default:
 				return '';
 		}
@@ -605,7 +633,86 @@ class SheetsPilot_ContentBlocks {
 			$json
 		);
 
-		return preg_replace( '/,\s*([}\]])/', '$1', $json );
+		$json = preg_replace( '/,\s*([}\]])/', '$1', $json );
+
+		return self::repair_missing_array_closers( (string) $json );
+	}
+
+	/**
+	 * Insert missing "]" when the model closes an object while an array is still open.
+	 *
+	 * Common AI mistake for list blocks:
+	 *   {"type":"list","items":["a","b"},{"type":"heading"...
+	 * should be:
+	 *   {"type":"list","items":["a","b"]},{"type":"heading"...
+	 *
+	 * @param string $json Raw JSON string.
+	 * @return string
+	 */
+	private static function repair_missing_array_closers( $json ) {
+		if ( $json === '' ) {
+			return $json;
+		}
+
+		$out    = '';
+		$len    = strlen( $json );
+		$in_str = false;
+		$esc    = false;
+		$stack  = array();
+
+		for ( $i = 0; $i < $len; $i++ ) {
+			$ch = $json[ $i ];
+
+			if ( $in_str ) {
+				$out .= $ch;
+				if ( $esc ) {
+					$esc = false;
+					continue;
+				}
+				if ( $ch === '\\' ) {
+					$esc = true;
+					continue;
+				}
+				if ( $ch === '"' ) {
+					$in_str = false;
+				}
+				continue;
+			}
+
+			if ( $ch === '"' ) {
+				$in_str = true;
+				$out   .= $ch;
+				continue;
+			}
+
+			if ( $ch === '{' || $ch === '[' ) {
+				$stack[] = $ch;
+				$out    .= $ch;
+				continue;
+			}
+
+			if ( $ch === '}' || $ch === ']' ) {
+				// Model closed an object while an array was still open: insert "]" first.
+				if ( $ch === '}' && ! empty( $stack ) && end( $stack ) === '[' ) {
+					$out .= ']';
+					array_pop( $stack );
+				}
+				if ( ! empty( $stack ) ) {
+					array_pop( $stack );
+				}
+				$out .= $ch;
+				continue;
+			}
+
+			$out .= $ch;
+		}
+
+		while ( ! empty( $stack ) ) {
+			$open = array_pop( $stack );
+			$out .= ( $open === '[' ) ? ']' : '}';
+		}
+
+		return $out;
 	}
 
 	/**
@@ -764,6 +871,7 @@ class SheetsPilot_ContentBlocks {
 				return '---';
 
 			case 'toggle':
+			case 'accordion':
 				if ( empty( $settings['tabs'] ) || ! is_array( $settings['tabs'] ) ) {
 					return '';
 				}
@@ -774,6 +882,9 @@ class SheetsPilot_ContentBlocks {
 					}
 				}
 				return implode( ', ', array_slice( $titles, 0, 2 ) );
+
+			case 'button':
+				return isset( $settings['text'] ) ? self::sanitize_plain_text( (string) $settings['text'] ) : '';
 
 			case 'html':
 				if ( empty( $settings['html'] ) ) {
@@ -854,6 +965,20 @@ class SheetsPilot_ContentBlocks {
 			case self::BLOCK_MORE:
 				return '[Read more]';
 
+			case self::BLOCK_ACCORDION:
+				$items  = self::get_block_accordion_items( $block_def );
+				$titles = array();
+				foreach ( $items as $item ) {
+					if ( $item['title'] !== '' ) {
+						$titles[] = $item['title'];
+					}
+				}
+				return ! empty( $titles ) ? implode( ', ', array_slice( $titles, 0, 4 ) ) : '[Accordion]';
+
+			case self::BLOCK_BUTTON:
+				$text = self::get_block_text( $block_def );
+				return $text !== '' ? $text : '[Button]';
+
 			default:
 				return '';
 		}
@@ -914,6 +1039,16 @@ class SheetsPilot_ContentBlocks {
 			case self::BLOCK_MORE:
 				return self::make_more_block();
 
+			case self::BLOCK_ACCORDION:
+				return self::make_accordion_block( self::get_block_accordion_items( $block_def ) );
+
+			case self::BLOCK_BUTTON:
+				return self::make_button_block(
+					self::get_block_text( $block_def ),
+					self::get_block_button_url( $block_def ),
+					self::get_block_button_open_in_new_tab( $block_def )
+				);
+
 			default:
 				return null;
 		}
@@ -970,6 +1105,94 @@ class SheetsPilot_ContentBlocks {
 			}
 		}
 		return $rows;
+	}
+
+	/**
+	 * @param array $block_def Accordion block definition.
+	 * @return array<int,array{title:string,blocks:array}>
+	 */
+	private static function get_block_accordion_items( $block_def ) {
+		$raw   = isset( $block_def['items'] ) && is_array( $block_def['items'] ) ? $block_def['items'] : array();
+		$items = array();
+
+		foreach ( $raw as $item ) {
+			if ( ! is_array( $item ) ) {
+				continue;
+			}
+
+			$title  = isset( $item['title'] ) ? self::sanitize_plain_text( (string) $item['title'] ) : '';
+			$blocks = isset( $item['blocks'] ) && is_array( $item['blocks'] ) ? $item['blocks'] : array();
+
+			if ( empty( $blocks ) && isset( $item['text'] ) ) {
+				$blocks = array(
+					array(
+						'type' => self::BLOCK_PARAGRAPH,
+						'text' => (string) $item['text'],
+					),
+				);
+			}
+
+			$items[] = array(
+				'title'  => $title,
+				'blocks' => $blocks,
+			);
+		}
+
+		if ( empty( $items ) ) {
+			$items[] = array(
+				'title'  => '',
+				'blocks' => array(),
+			);
+		}
+
+		return $items;
+	}
+
+	/**
+	 * @param array $block_def Button block definition.
+	 * @return string
+	 */
+	private static function get_block_button_url( $block_def ) {
+		$url = '';
+		if ( isset( $block_def['url'] ) ) {
+			$url = trim( (string) $block_def['url'] );
+		} elseif ( isset( $block_def['href'] ) ) {
+			$url = trim( (string) $block_def['href'] );
+		}
+
+		$url = esc_url_raw( $url );
+		return $url !== '' ? $url : '#';
+	}
+
+	/**
+	 * @param array $block_def Button block definition.
+	 * @return bool
+	 */
+	private static function get_block_button_open_in_new_tab( $block_def ) {
+		if ( ! empty( $block_def['open_in_new_tab'] ) ) {
+			return true;
+		}
+		$target = isset( $block_def['linkTarget'] ) ? (string) $block_def['linkTarget'] : '';
+		return $target === '_blank';
+	}
+
+	/**
+	 * Flatten nested block defs to HTML for Elementor toggle/accordion panels.
+	 *
+	 * @param array $nested_blocks Nested block definitions.
+	 * @return string
+	 */
+	private static function nested_blocks_to_html( $nested_blocks ) {
+		$parts = array();
+		if ( is_array( $nested_blocks ) ) {
+			foreach ( $nested_blocks as $nested_def ) {
+				$html = self::block_to_simple_html( $nested_def );
+				if ( $html !== '' ) {
+					$parts[] = $html;
+				}
+			}
+		}
+		return empty( $parts ) ? '<p></p>' : implode( '', $parts );
 	}
 
 	/**
@@ -1288,6 +1511,213 @@ class SheetsPilot_ContentBlocks {
 	}
 
 	/**
+	 * @param array<int,array{title:string,blocks:array}> $items Accordion items.
+	 * @return array
+	 */
+	private static function make_accordion_block( $items ) {
+		if ( self::has_core_accordion_block() ) {
+			return self::make_core_accordion_block( $items );
+		}
+
+		$details_blocks = array();
+		foreach ( $items as $item ) {
+			$details_blocks[] = self::make_details_block( $item['title'], $item['blocks'] );
+		}
+
+		$inner_content = array( '<div class="wp-block-group">' );
+		foreach ( $details_blocks as $details_block ) {
+			unset( $details_block );
+			$inner_content[] = null;
+		}
+		$inner_content[] = '</div>';
+
+		return array(
+			'blockName'    => 'core/group',
+			'attrs'        => array(
+				'layout' => array(
+					'type' => 'constrained',
+				),
+			),
+			'innerBlocks'  => $details_blocks,
+			'innerHTML'    => '',
+			'innerContent' => $inner_content,
+		);
+	}
+
+	/**
+	 * Whether core/accordion is registered (WordPress 6.9+).
+	 *
+	 * @return bool
+	 */
+	private static function has_core_accordion_block() {
+		return class_exists( 'WP_Block_Type_Registry' )
+			&& WP_Block_Type_Registry::get_instance()->is_registered( 'core/accordion' );
+	}
+
+	/**
+	 * Build a native core/accordion block tree.
+	 *
+	 * @param array<int,array{title:string,blocks:array}> $items Accordion items.
+	 * @return array
+	 */
+	private static function make_core_accordion_block( $items ) {
+		$item_blocks = array();
+		foreach ( $items as $item ) {
+			$item_blocks[] = self::make_core_accordion_item_block( $item['title'], $item['blocks'] );
+		}
+
+		$inner_content = array( '<div class="wp-block-accordion" role="group">' );
+		foreach ( $item_blocks as $item_block ) {
+			unset( $item_block );
+			$inner_content[] = null;
+		}
+		$inner_content[] = '</div>';
+
+		return array(
+			'blockName'    => 'core/accordion',
+			'attrs'        => array(
+				'autoclose'    => true,
+				'headingLevel' => 3,
+				'iconPosition' => 'right',
+				'showIcon'     => true,
+			),
+			'innerBlocks'  => $item_blocks,
+			'innerHTML'    => '',
+			'innerContent' => $inner_content,
+		);
+	}
+
+	/**
+	 * @param string $title         Item title.
+	 * @param array  $nested_blocks Nested content blocks.
+	 * @return array
+	 */
+	private static function make_core_accordion_item_block( $title, $nested_blocks ) {
+		$heading = self::make_core_accordion_heading_block( $title );
+		$panel   = self::make_core_accordion_panel_block( $nested_blocks );
+
+		return array(
+			'blockName'    => 'core/accordion-item',
+			'attrs'        => array(
+				'openByDefault' => false,
+			),
+			'innerBlocks'  => array( $heading, $panel ),
+			'innerHTML'    => '',
+			'innerContent' => array(
+				'<div class="wp-block-accordion-item">',
+				null,
+				null,
+				'</div>',
+			),
+		);
+	}
+
+	/**
+	 * @param string $title Heading title.
+	 * @return array
+	 */
+	private static function make_core_accordion_heading_block( $title ) {
+		$safe = self::escape_text( $title );
+		$html = '<h3 class="wp-block-accordion-heading">'
+			. '<button type="button" class="wp-block-accordion-heading__toggle">'
+			. '<span class="wp-block-accordion-heading__toggle-title">' . $safe . '</span>'
+			. '<span class="wp-block-accordion-heading__toggle-icon" aria-hidden="true">+</span>'
+			. '</button></h3>';
+
+		return array(
+			'blockName'    => 'core/accordion-heading',
+			'attrs'        => array(
+				'title'        => self::sanitize_plain_text( $title ),
+				'level'        => 3,
+				'iconPosition' => 'right',
+				'showIcon'     => true,
+			),
+			'innerBlocks'  => array(),
+			'innerHTML'    => $html,
+			'innerContent' => array( $html ),
+		);
+	}
+
+	/**
+	 * @param array $nested_blocks Nested content blocks.
+	 * @return array
+	 */
+	private static function make_core_accordion_panel_block( $nested_blocks ) {
+		$wp_inner_blocks = array();
+		if ( empty( $nested_blocks ) ) {
+			$wp_inner_blocks[] = self::make_paragraph_block( '' );
+		} else {
+			foreach ( $nested_blocks as $nested_def ) {
+				$nested = self::convert_block_definition( $nested_def );
+				if ( $nested !== null ) {
+					$wp_inner_blocks[] = $nested;
+				}
+			}
+			if ( empty( $wp_inner_blocks ) ) {
+				$wp_inner_blocks[] = self::make_paragraph_block( '' );
+			}
+		}
+
+		$inner_content = array( '<div class="wp-block-accordion-panel" role="region">' );
+		foreach ( $wp_inner_blocks as $inner_block ) {
+			unset( $inner_block );
+			$inner_content[] = null;
+		}
+		$inner_content[] = '</div>';
+
+		return array(
+			'blockName'    => 'core/accordion-panel',
+			'attrs'        => array(),
+			'innerBlocks'  => $wp_inner_blocks,
+			'innerHTML'    => '',
+			'innerContent' => $inner_content,
+		);
+	}
+
+	/**
+	 * @param string $text     Button label.
+	 * @param string $url      Button URL.
+	 * @param bool   $open_new Open in new tab.
+	 * @return array
+	 */
+	private static function make_button_block( $text, $url, $open_new = false ) {
+		$safe_text = self::escape_text( $text );
+		$safe_url  = esc_url( $url );
+		$attrs     = ' href="' . $safe_url . '"';
+		$block_attrs = array(
+			'url'  => $url,
+			'text' => self::sanitize_plain_text( $text ),
+		);
+
+		if ( $open_new ) {
+			$attrs                  .= ' target="_blank" rel="noreferrer noopener"';
+			$block_attrs['linkTarget'] = '_blank';
+			$block_attrs['rel']        = 'noreferrer noopener';
+		}
+
+		$button_html = '<div class="wp-block-button"><a class="wp-block-button__link wp-element-button"' . $attrs . '>' . $safe_text . '</a></div>';
+		$button      = array(
+			'blockName'    => 'core/button',
+			'attrs'        => $block_attrs,
+			'innerBlocks'  => array(),
+			'innerHTML'    => $button_html,
+			'innerContent' => array( $button_html ),
+		);
+
+		return array(
+			'blockName'    => 'core/buttons',
+			'attrs'        => array(),
+			'innerBlocks'  => array( $button ),
+			'innerHTML'    => '',
+			'innerContent' => array(
+				'<div class="wp-block-buttons">',
+				null,
+				'</div>',
+			),
+		);
+	}
+
+	/**
 	 * @param array $widgets Elementor widgets.
 	 * @param int   $post_id Post ID.
 	 * @return array
@@ -1433,6 +1863,16 @@ class SheetsPilot_ContentBlocks {
 			case self::BLOCK_MORE:
 				return null;
 
+			case self::BLOCK_ACCORDION:
+				return self::make_elementor_accordion_widget( self::get_block_accordion_items( $block_def ) );
+
+			case self::BLOCK_BUTTON:
+				return self::make_elementor_button_widget(
+					self::get_block_text( $block_def ),
+					self::get_block_button_url( $block_def ),
+					self::get_block_button_open_in_new_tab( $block_def )
+				);
+
 			default:
 				return null;
 		}
@@ -1538,41 +1978,67 @@ class SheetsPilot_ContentBlocks {
 	 * @return array
 	 */
 	private static function make_elementor_toggle_widget( $summary, $nested_blocks ) {
-		$content_parts = array();
-		if ( empty( $nested_blocks ) ) {
-			$content_parts[] = '<p></p>';
-		} else {
-			foreach ( $nested_blocks as $nested_def ) {
-				$widget = self::convert_block_to_elementor_widget( $nested_def );
-				if ( $widget === null ) {
-					continue;
-				}
-				if ( $widget['widgetType'] === 'text-editor' && ! empty( $widget['settings']['editor'] ) ) {
-					$content_parts[] = $widget['settings']['editor'];
-				} elseif ( $widget['widgetType'] === 'heading' && ! empty( $widget['settings']['title'] ) ) {
-					$tag             = isset( $widget['settings']['header_size'] ) ? $widget['settings']['header_size'] : 'h2';
-					$content_parts[] = '<' . $tag . '>' . esc_html( $widget['settings']['title'] ) . '</' . $tag . '>';
-				}
-			}
-		}
-
-		if ( empty( $content_parts ) ) {
-			$content_parts[] = '<p></p>';
-		}
-
 		return self::make_elementor_element(
 			'widget',
 			array(
 				'tabs' => array(
 					array(
 						'tab_title'   => $summary !== '' ? $summary : __( 'Details', 'sheetspilot' ),
-						'tab_content' => implode( '', $content_parts ),
+						'tab_content' => self::nested_blocks_to_html( $nested_blocks ),
 						'_id'         => self::generate_elementor_id(),
 					),
 				),
 			),
 			array(),
 			'toggle'
+		);
+	}
+
+	/**
+	 * @param array<int,array{title:string,blocks:array}> $items Accordion items.
+	 * @return array
+	 */
+	private static function make_elementor_accordion_widget( $items ) {
+		$tabs = array();
+		foreach ( $items as $item ) {
+			$tabs[] = array(
+				'tab_title'   => $item['title'] !== '' ? $item['title'] : __( 'Accordion', 'sheetspilot' ),
+				'tab_content' => self::nested_blocks_to_html( $item['blocks'] ),
+				'_id'         => self::generate_elementor_id(),
+			);
+		}
+
+		return self::make_elementor_element(
+			'widget',
+			array(
+				'tabs' => $tabs,
+			),
+			array(),
+			'accordion'
+		);
+	}
+
+	/**
+	 * @param string $text     Button label.
+	 * @param string $url      Button URL.
+	 * @param bool   $open_new Open in new tab.
+	 * @return array
+	 */
+	private static function make_elementor_button_widget( $text, $url, $open_new = false ) {
+		$link = array(
+			'url'         => $url !== '' ? $url : '#',
+			'is_external' => $open_new ? 'on' : '',
+			'nofollow'    => '',
+		);
+
+		return self::make_elementor_element(
+			'widget',
+			array(
+				'text' => $text !== '' ? $text : __( 'Click here', 'sheetspilot' ),
+				'link' => $link,
+			),
+			array(),
+			'button'
 		);
 	}
 

@@ -4577,8 +4577,11 @@ function SheetsPilot_PostsEditorView(action_prefix, action_name) {
 				'#ubai_prompt_requests_panel .ubai-prq__dot--error{background:#dc2626;box-shadow:0 0 0 3px rgba(220,38,38,.18);}',
 				'#ubai_prompt_requests_panel .ubai-prq__meta{flex:1;min-width:0;}',
 				'#ubai_prompt_requests_panel .ubai-prq__label{font-weight:600;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
-				'#ubai_prompt_requests_panel .ubai-prq__sub{color:#6b7280;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
-				'#ubai_prompt_requests_panel .ubai-prq__log-id{color:#9ca3af;font-size:10px;line-height:1.35;margin-top:2px;}',
+				'#ubai_prompt_requests_panel .ubai-prq__field{color:#6b7280;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px;}',
+				'#ubai_prompt_requests_panel .ubai-prq__footer{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:3px;min-width:0;}',
+				'#ubai_prompt_requests_panel .ubai-prq__state{color:#6b7280;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}',
+				'#ubai_prompt_requests_panel .ubai-prq__item--error .ubai-prq__state{color:#b91c1c;}',
+				'#ubai_prompt_requests_panel .ubai-prq__log-id{flex:none;color:#9ca3af;font-size:10px;line-height:1.35;white-space:nowrap;}',
 				'#ubai_prompt_requests_panel .ubai-prq__clear{flex:none;border:0;background:none;padding:0;font-size:12px;font-weight:600;color:#6b7280;cursor:pointer;opacity:0;transition:opacity .15s;}',
 				'#ubai_prompt_requests_panel .ubai-prq__clear:hover{color:#111827;text-decoration:underline;}',
 				'#ubai_prompt_requests_panel .ubai-prq__item:hover .ubai-prq__clear{opacity:1;}'
@@ -4728,24 +4731,28 @@ function SheetsPilot_PostsEditorView(action_prefix, action_name) {
 						? '<span class="ubai-prq__dot ubai-prq__dot--error"></span>'
 						: '<span class="ubai-prq__spinner"></span>')));
 			var $meta = jQuery('<span class="ubai-prq__meta"></span>');
-			$meta.append(jQuery('<div class="ubai-prq__label"></div>').text(item.label || 'Cell'));
-			var subText = item.sub || '';
+			$meta.append(jQuery('<div class="ubai-prq__label"></div>').text(item.label || 'Post'));
+			$meta.append(jQuery('<div class="ubai-prq__field"></div>').text(item.sub || 'Cell'));
 			var stateText = ready
 				? (strings.promptRequestReady || 'Result ready')
 				: (waiting ? (strings.promptRequestWaiting || 'Waiting') : (errored ? 'Error' : (strings.promptRequestLoading || 'Generating…')));
-			var detailText = errored ? (item.errorMessage || subText || '') : subText;
+			if (errored && item.errorMessage) {
+				stateText = item.errorMessage;
+			}
 			var tooltipText = errored ? (item.errorDetailText || item.errorMessage || '') : '';
-			var $sub = jQuery('<div class="ubai-prq__sub"></div>').text(detailText ? stateText + ' · ' + detailText : stateText);
+			var $footer = jQuery('<div class="ubai-prq__footer"></div>');
+			var $state = jQuery('<div class="ubai-prq__state"></div>').text(stateText);
 			if (tooltipText) {
-				$sub.attr('title', tooltipText);
+				$state.attr('title', tooltipText);
 				$item.attr('title', tooltipText);
 			}
-			$meta.append($sub);
-			if ((ready || errored) && item.logId) {
-				$meta.append(
+			$footer.append($state);
+			if (item.logId) {
+				$footer.append(
 					jQuery('<div class="ubai-prq__log-id"></div>').text('Log #' + item.logId)
 				);
 			}
+			$meta.append($footer);
 			$item.append($status).append($meta);
 			$item.append(
 				jQuery('<button type="button" class="ubai-prq__clear"></button>')
