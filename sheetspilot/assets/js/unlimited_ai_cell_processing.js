@@ -22,13 +22,6 @@ function ubaiColumnHasSavedCellRules(columnName) {
 	}
 	var pr = rules[columnName];
 	if (pr != null && String(pr).trim() !== '') {
-		if (columnName === 'post_content' && typeof console !== 'undefined' && console.log) {
-			console.log('[AutomateWorkflow] ubaiColumnHasSavedCellRules', {
-				column: columnName,
-				hasRules: true,
-				promptPreview: String(pr).substring(0, 120)
-			});
-		}
 		return true;
 	}
 	if (rules[columnName + '__aspect_ratio'] || rules[columnName + '__quality']) {
@@ -39,13 +32,6 @@ function ubaiColumnHasSavedCellRules(columnName) {
 	}
 	if (rules[columnName + '__resolution']) {
 		return true;
-	}
-	if (columnName === 'post_content' && typeof console !== 'undefined' && console.log) {
-		console.log('[AutomateWorkflow] ubaiColumnHasSavedCellRules', {
-			column: columnName,
-			hasRules: false,
-			rulesKeys: Object.keys(rules).filter(function (k) { return k.indexOf('post_content') !== -1; })
-		});
 	}
 	return false;
 }
@@ -5585,8 +5571,8 @@ class SheetsPilot_CellProcessing {
 			postTitle = postTitle.substring(0, 34).trim() + '\u2026';
 		}
 
-		info.label = columnName || 'Cell';
-		info.sub = postTitle || (postId != null ? 'Post #' + postId : '');
+		info.label = postTitle || (postId != null ? 'Post #' + postId : 'Post');
+		info.sub = columnName || 'Cell';
 		return info;
 	}
 

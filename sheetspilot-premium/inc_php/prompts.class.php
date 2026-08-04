@@ -29,7 +29,7 @@ class SheetsPilot_Prompts{
 	 * @var string
 	 */
 	public static $postContentOutputRules = "The output MUST be valid JSON. In the \"data\" field put a content-block tree object (NOT HTML, NOT Gutenberg markup).\n\n"
-		. "Allowed block types (use only these): paragraph, heading, list, separator, quote, table, code, preformatted, details, more.\n\n"
+		. "Allowed block types (use only these): paragraph, heading, list, separator, quote, table, code, preformatted, details, more, accordion, button.\n\n"
 		. "Block tree format:\n"
 		. "- \"data\" MUST be: {\"blocks\":[ ... ]}\n"
 		. "- Each block MUST have \"type\" set to one of the allowed types.\n"
@@ -42,11 +42,15 @@ class SheetsPilot_Prompts{
 		. "- code: {\"type\":\"code\",\"text\":\"...\"}\n"
 		. "- preformatted: {\"type\":\"preformatted\",\"text\":\"...\"}\n"
 		. "- details: {\"type\":\"details\",\"summary\":\"...\",\"blocks\":[{\"type\":\"paragraph\",\"text\":\"...\"}]}\n"
-		. "- more: {\"type\":\"more\"}\n\n"
+		. "- more: {\"type\":\"more\"}\n"
+		. "- accordion: {\"type\":\"accordion\",\"items\":[{\"title\":\"Section one\",\"blocks\":[{\"type\":\"paragraph\",\"text\":\"...\"}]},{\"title\":\"Section two\",\"blocks\":[{\"type\":\"paragraph\",\"text\":\"...\"}]}]}\n"
+		. "- button: {\"type\":\"button\",\"text\":\"Learn more\",\"url\":\"https://example.com\",\"open_in_new_tab\":false} (url and open_in_new_tab optional)\n\n"
 		. "Output rules:\n"
 		. "- Return plain text only inside block fields (no HTML tags, no markdown, no Gutenberg comments).\n"
 		. "- Put the complete final content in \"data.blocks\" (all blocks in reading order).\n"
 		. "- Add \"display_text\": a short plain-text preview (first few lines of the content).\n"
+		. "- Every list block MUST close its items array with ] before the list object ends "
+		. "(valid: {\"type\":\"list\",\"ordered\":false,\"items\":[\"a\",\"b\"]} — never omit the ]).\n"
 		. "- Do NOT wrap output in markdown code fences.\n"
 		. "- Example:\n"
 		. "{\"type\":\"data\",\"data\":{\"blocks\":[{\"type\":\"heading\",\"level\":2,\"text\":\"Title\"},{\"type\":\"paragraph\",\"text\":\"Intro text.\"},{\"type\":\"list\",\"ordered\":false,\"items\":[\"Point one\",\"Point two\"]},{\"type\":\"separator\"}]},\"display_text\":\"Title\\nIntro text.\",\"instruction_summary\":\"Rewrite content\"}";

@@ -44,9 +44,11 @@ class SheetsPilotGlobals{
 	const VIEW_PROMPT_HISTORY = "prompt_history";
 	const VIEW_PROMPT_TESTER = "prompt_tester";
 	const PROMPT_HISTORY_ROTATION = 30;
-	/** Max request/response log rows to keep. */
-	const REQUEST_LOG_KEEP = 100;
-	/** Rotate only after this many extra rows beyond REQUEST_LOG_KEEP (e.g. keep 100, rotate at 110). */
+	/** Max request/response log rows to keep in the database. */
+	const REQUEST_LOG_KEEP = 200;
+	/** Default rows shown in the log view (newest first). */
+	const REQUEST_LOG_DISPLAY = 100;
+	/** Rotate only after this many extra rows beyond REQUEST_LOG_KEEP (e.g. keep 200, rotate at 210). */
 	const REQUEST_LOG_ROTATION_BUFFER = 10;
 	const OPTIONS_GROUP_NAME = "sheetspilot-settings"; 
 	const OPTION_GENERAL_SETTINGS = "sheetspilot_general_settings";

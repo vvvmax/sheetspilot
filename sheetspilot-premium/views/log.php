@@ -158,17 +158,62 @@ class SheetsPilot_PluginViewLog {
 	private function putViewHtml() {
 
 		$action_filter = isset( $_GET['action_filter'] ) ? sanitize_key( wp_unslash( $_GET['action_filter'] ) ) : '';
-		$action_types  = SheetsPilot_RequestLog::getDistinctActions();
-		$logs          = SheetsPilot_RequestLog::getLast( 100, $action_filter );
+		$orderby       = isset( $_GET['orderby'] ) ? sanitize_key( wp_unslash( $_GET['orderby'] ) ) : '';
+		$sort_by_action = ( $orderby === 'action' );
+
+		$display_limit = (int) SheetsPilotGlobals::REQUEST_LOG_DISPLAY;
+		$keep_limit    = (int) SheetsPilotGlobals::REQUEST_LOG_KEEP;
+		if ( $display_limit < 1 ) {
+			$display_limit = 100;
+		}
+		if ( $keep_limit < 1 ) {
+			$keep_limit = 200;
+		}
+
+		// Default: newest DISPLAY rows. Action sort/filter: search the full KEEP pool (errors first when sorting).
+		$query_limit = ( $sort_by_action || $action_filter !== '' ) ? $keep_limit : $display_limit;
+		$order_mode  = $sort_by_action ? 'action_error_first' : 'id_desc';
+
+		$action_types = SheetsPilot_RequestLog::getDistinctActions();
+		$logs         = SheetsPilot_RequestLog::getLast( $query_limit, $action_filter, $order_mode );
 		$title = __( 'Request / Response Log', 'sheetspilot' );
 		$log_page = SheetsPilotGlobals::PLUGIN_SLUG . '_log';
 		$prompt_history_url = SheetsPilotHelper::getViewUrl( SheetsPilotGlobals::VIEW_PROMPT_HISTORY );
 		$show_session_log_ui = $this->shouldShowSessionLogUi();
 		$session_logs = $show_session_log_ui ? SheetsPilot_AjaxSessionLog::getSessions() : array();
+
+		$base_log_url = admin_url( 'admin.php?page=' . $log_page );
+		$action_sort_only_url = add_query_arg( array( 'orderby' => 'action' ), $base_log_url );
+		$action_sort_url = add_query_arg(
+			array_filter(
+				array(
+					'orderby'       => 'action',
+					'action_filter' => $action_filter !== '' ? $action_filter : null,
+				)
+			),
+			$base_log_url
+		);
+		$action_sort_clear_url = add_query_arg(
+			array_filter(
+				array(
+					'action_filter' => $action_filter !== '' ? $action_filter : null,
+				)
+			),
+			$base_log_url
+		);
 		?>
 		<div class="wrap unlimited-ai-log-wrap">
 			<h1><?php echo esc_html( $title ); ?></h1>
-			<p class="unlimited-ai-log-description"><?php esc_html_e( 'Last 100 prompt requests and responses. Click Show full to expand; click Hide to collapse.', 'sheetspilot' ); ?></p>
+			<p class="unlimited-ai-log-description">
+				<?php
+				printf(
+					/* translators: 1: display limit, 2: keep limit */
+					esc_html__( 'Showing the newest %1$d prompt requests (up to %2$d kept in the database). Click Show full to expand; click Hide to collapse.', 'sheetspilot' ),
+					$display_limit,
+					$keep_limit
+				);
+				?>
+			</p>
 			<p class="unlimited-ai-log-toolbar">
 				<a href="<?php echo esc_url( $prompt_history_url ); ?>" class="button"><?php esc_html_e( 'Show prompt history table', 'sheetspilot' ); ?></a>
 				<?php if ( $show_session_log_ui ) : ?>
@@ -176,6 +221,9 @@ class SheetsPilot_PluginViewLog {
 				<?php endif; ?>
 				<form method="get" class="unlimited-ai-log-action-filter">
 					<input type="hidden" name="page" value="<?php echo esc_attr( $log_page ); ?>">
+					<?php if ( $sort_by_action ) : ?>
+					<input type="hidden" name="orderby" value="action">
+					<?php endif; ?>
 					<label for="unlimited-ai-log-action-filter"><?php esc_html_e( 'Action', 'sheetspilot' ); ?></label>
 					<select name="action_filter" id="unlimited-ai-log-action-filter">
 						<option value=""><?php esc_html_e( 'All actions', 'sheetspilot' ); ?></option>
@@ -185,17 +233,29 @@ class SheetsPilot_PluginViewLog {
 					</select>
 					<button type="submit" class="button"><?php esc_html_e( 'Filter', 'sheetspilot' ); ?></button>
 					<?php if ( $action_filter !== '' ) : ?>
-					<a class="button" href="<?php echo esc_url( admin_url( 'admin.php?page=' . $log_page ) ); ?>"><?php esc_html_e( 'Clear filter', 'sheetspilot' ); ?></a>
+					<a class="button" href="<?php echo esc_url( $sort_by_action ? $action_sort_only_url : $base_log_url ); ?>"><?php esc_html_e( 'Clear filter', 'sheetspilot' ); ?></a>
 					<?php endif; ?>
 				</form>
 			</p>
-			<?php if ( $action_filter !== '' ) : ?>
+			<?php if ( $sort_by_action ) : ?>
 			<p class="unlimited-ai-log-description unlimited-ai-log-filter-note">
 				<?php
 				printf(
-					/* translators: %s: action type slug */
-					esc_html__( 'Showing the last 100 log entries with action: %s', 'sheetspilot' ),
-					esc_html( $action_filter )
+					/* translators: %d: keep limit */
+					esc_html__( 'Sorted by action (errors first) across the last %d kept log entries.', 'sheetspilot' ),
+					$keep_limit
+				);
+				?>
+				<a href="<?php echo esc_url( $action_sort_clear_url ); ?>"><?php esc_html_e( 'Clear sort', 'sheetspilot' ); ?></a>
+			</p>
+			<?php elseif ( $action_filter !== '' ) : ?>
+			<p class="unlimited-ai-log-description unlimited-ai-log-filter-note">
+				<?php
+				printf(
+					/* translators: 1: action type slug, 2: keep limit */
+					esc_html__( 'Showing log entries with action: %1$s (from the last %2$d kept entries).', 'sheetspilot' ),
+					esc_html( $action_filter ),
+					$keep_limit
 				);
 				?>
 			</p>
@@ -265,7 +325,18 @@ class SheetsPilot_PluginViewLog {
 					<tr>
 						<th class="unlimited-ai-log-col-id" style="width:50px"><?php esc_html_e( 'ID', 'sheetspilot' ); ?></th>
 						<th class="unlimited-ai-log-col-title"><?php esc_html_e( 'Title (prompt)', 'sheetspilot' ); ?></th>
-						<th class="unlimited-ai-log-col-action" style="width:100px"><?php esc_html_e( 'Action', 'sheetspilot' ); ?></th>
+						<th class="unlimited-ai-log-col-action" style="width:120px">
+							<?php if ( $sort_by_action ) : ?>
+							<a class="unlimited-ai-log-sort-link is-active" href="<?php echo esc_url( $action_sort_clear_url ); ?>" title="<?php esc_attr_e( 'Clear action sort', 'sheetspilot' ); ?>">
+								<?php esc_html_e( 'Action', 'sheetspilot' ); ?>
+								<span class="unlimited-ai-log-sort-indicator" aria-hidden="true">▼</span>
+							</a>
+							<?php else : ?>
+							<a class="unlimited-ai-log-sort-link" href="<?php echo esc_url( $action_sort_url ); ?>" title="<?php esc_attr_e( 'Sort by action (errors first)', 'sheetspilot' ); ?>">
+								<?php esc_html_e( 'Action', 'sheetspilot' ); ?>
+							</a>
+							<?php endif; ?>
+						</th>
 						<th class="unlimited-ai-log-col-cell"><?php esc_html_e( 'Cell value (before)', 'sheetspilot' ); ?></th>
 						<th class="unlimited-ai-log-col-response"><?php esc_html_e( 'Response value (after)', 'sheetspilot' ); ?></th>
 						<th class="unlimited-ai-log-col-date" style="width:140px"><?php esc_html_e( 'Date', 'sheetspilot' ); ?></th>
@@ -408,6 +479,10 @@ class SheetsPilot_PluginViewLog {
 			.unlimited-ai-log-table { table-layout: fixed; }
 			.unlimited-ai-log-title { overflow: hidden; text-overflow: ellipsis; max-width: 0; }
 			.unlimited-ai-log-preview { overflow: hidden; text-overflow: ellipsis; max-width: 0; font-size: 12px; }
+			.unlimited-ai-log-sort-link { text-decoration: none; color: inherit; }
+			.unlimited-ai-log-sort-link:hover { color: #2271b1; }
+			.unlimited-ai-log-sort-link.is-active { color: #2271b1; font-weight: 600; }
+			.unlimited-ai-log-sort-indicator { font-size: 10px; margin-left: 2px; }
 			.unlimited-ai-log-detail-cell { background: #f6f7f7; vertical-align: top; padding: 0; }
 			.unlimited-ai-log-detail-inner { padding: 12px 16px; }
 			.unlimited-ai-log-block { margin-bottom: 16px; }
