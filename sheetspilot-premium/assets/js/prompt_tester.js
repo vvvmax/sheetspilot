@@ -911,14 +911,98 @@
 			$('.ubai-prompt-tester-tab-panel[data-tab-panel="' + tab + '"]').show();
 		}
 
+		function prettyJson(value){
+			try{
+				return JSON.stringify(value, null, 2);
+			}catch(e){
+				return String(value);
+			}
+		}
+
+		function setCheckerStatus(ok, message){
+			var $status = $('#ubai_response_checker_status');
+			$status.show().text(message || '');
+			$status.css({
+				background: ok ? '#edfaef' : '#fcf0f1',
+				border: ok ? '1px solid #46b450' : '1px solid #d63638',
+				color: ok ? '#1d6f42' : '#8a2424'
+			});
+		}
+
+		$('#ubai_response_checker_run').on('click', function(){
+			var aiResponse = $('#ubai_response_checker_ai').val() || '';
+			var metadata = $('#ubai_response_checker_meta').val() || '';
+			var $loader = $('#ubai_response_checker_loader');
+			var $result = $('#ubai_response_checker_result');
+
+			if($.trim(aiResponse) === ''){
+				setCheckerStatus(false, 'Paste an AI Response first.');
+				return;
+			}
+
+			$loader.show();
+			$result.text('');
+			$('#ubai_response_checker_status').hide();
+
+			$.ajax({
+				url: g_urlAjaxActionsSheetsPilot,
+				method: 'POST',
+				dataType: 'json',
+				data: {
+					action: 'sheetspilot_ajax_actions',
+					client_action: 'response_checker_run',
+					nonce: g_doublyNonce,
+					data: JSON.stringify({
+						ai_response: aiResponse,
+						metadata: metadata
+					})
+				}
+			}).done(function(resp){
+				var payload = resp || {};
+				// ajaxResponseSuccess merges fields onto the top-level response.
+				if(payload.ok !== true && payload.ok !== false && payload.data && (payload.data.ok === true || payload.data.ok === false)){
+					payload = payload.data;
+				}
+
+				$result.text(prettyJson(payload));
+				if(payload && payload.ok){
+					setCheckerStatus(true, 'OK — actions would return action="' + (payload.client && payload.client.action ? payload.client.action : '') + '" (mapping: ' + (payload.mapping_path || '') + ')');
+				}else{
+					setCheckerStatus(false, (payload && payload.error) ? payload.error : 'Check failed.');
+				}
+			}).fail(function(xhr){
+				var msg = 'Request failed.';
+				try{
+					var parsed = JSON.parse(xhr.responseText);
+					if(parsed && parsed.message){
+						msg = parsed.message;
+					}
+				}catch(e){}
+				setCheckerStatus(false, msg);
+				$result.text(xhr.responseText || msg);
+			}).always(function(){
+				$loader.hide();
+			});
+		});
+
 		function applyPreloadFromLog(){
 			var preload = window.g_promptTesterPreload;
 			if(!preload || typeof preload !== 'object'){
 				return;
 			}
 
-			var tab = preload.tab === 'image' ? 'image' : 'text';
+			var tab = preload.tab === 'image' ? 'image' : (preload.tab === 'checker' ? 'checker' : 'text');
 			activatePromptTesterTab(tab);
+
+			if(tab === 'checker'){
+				if(typeof preload.ai_response === 'string' && preload.ai_response !== ''){
+					$('#ubai_response_checker_ai').val(preload.ai_response);
+				}
+				if(typeof preload.metadata === 'string' && preload.metadata !== ''){
+					$('#ubai_response_checker_meta').val(preload.metadata);
+				}
+				return;
+			}
 
 			if(typeof preload.user_message === 'string' && preload.user_message !== ''){
 				$('#ubai_prompt_tester_user').val(preload.user_message);

@@ -375,10 +375,15 @@ class SheetsPilot_PluginViewLog {
 							$cell_preview  = $cell_display !== '' ? $this->previewForRow( $cell_display ) : '—';
 							$response_preview = $this->previewForRow( $response_data );
 							$test_url = '';
+							$check_url = '';
 							if ( SheetsPilotGlobals::$isPro && $id > 0 ) {
 								$test_url = SheetsPilotHelper::getViewUrl(
 									SheetsPilotGlobals::VIEW_PROMPT_TESTER,
 									'from_log=' . $id
+								);
+								$check_url = SheetsPilotHelper::getViewUrl(
+									SheetsPilotGlobals::VIEW_PROMPT_TESTER,
+									'from_log=' . $id . '&checker=1'
 								);
 							}
 							?>
@@ -403,6 +408,9 @@ class SheetsPilot_PluginViewLog {
 												<div class="unlimited-ai-log-block-actions">
 													<?php if ( $test_url !== '' ) : ?>
 													<a href="<?php echo esc_url( $test_url ); ?>" class="button button-small" target="_blank" rel="noopener noreferrer"><?php esc_html_e( 'Test', 'sheetspilot' ); ?></a>
+													<?php endif; ?>
+													<?php if ( $check_url !== '' ) : ?>
+													<a href="<?php echo esc_url( $check_url ); ?>" class="button button-small" target="_blank" rel="noopener noreferrer"><?php esc_html_e( 'Check response', 'sheetspilot' ); ?></a>
 													<?php endif; ?>
 													<button type="button" class="button button-small unlimited-ai-log-copy"><?php esc_html_e( 'Copy', 'sheetspilot' ); ?></button>
 												</div>

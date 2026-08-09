@@ -122,6 +122,8 @@ OpenAI Privacy Policy: https://openai.com/policies/privacy-policy
 * Fix: fixed the sort by title feature
 * Fix: fixed some json response from AI 
 * Feature: added accordion and button widget and block in the text content
+* Fix: fixed post selector
+
 
 = 1.0.6 =
 

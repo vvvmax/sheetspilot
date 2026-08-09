@@ -27,7 +27,7 @@ if ( ! defined( 'SHEETSPILOT_INC' ) ) {
 }
 
 
-define("SHEETSPILOT_DEV_BUILD","2");
+define("SHEETSPILOT_DEV_BUILD","3");
 
 
 if ( !function_exists( 'she_fs' ) ) {
