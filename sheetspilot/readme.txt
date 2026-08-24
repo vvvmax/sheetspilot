@@ -123,6 +123,7 @@ OpenAI Privacy Policy: https://openai.com/policies/privacy-policy
 * Fix: fixed some json response from AI 
 * Feature: added accordion and button widget and block in the text content
 * Fix: fixed post selector
+* Feature: added support for Jet Engine Meta Fields
 
 
 = 1.0.6 =
