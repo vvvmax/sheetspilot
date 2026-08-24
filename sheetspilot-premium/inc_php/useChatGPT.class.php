@@ -1325,9 +1325,53 @@ class SheetsPilot_UseChatGPT{
 	}
 
 	/**
+	 * Parse a pasted OpenAI chat completion (or raw message content) the same way apply_prompt does.
+	 *
+	 * @param string $raw Pasted log Response field, or message.content JSON/text.
+	 * @return array Parsed apply-prompt result (type/data|text/...).
+	 */
+	public static function parseApplyPromptAiResponse( $raw ) {
+		$raw = is_string( $raw ) ? trim( $raw ) : '';
+		if ( $raw === '' ) {
+			SheetsPilotFunctions::throwError( __( 'Paste an AI response to check.', 'sheetspilot' ) );
+		}
+
+		$decoded = json_decode( $raw );
+		if ( json_last_error() !== JSON_ERROR_NONE ) {
+			$decoded = json_decode( wp_unslash( $raw ) );
+		}
+
+		$content = null;
+		if ( is_object( $decoded ) && isset( $decoded->choices[0]->message->content ) ) {
+			$content = (string) $decoded->choices[0]->message->content;
+		} elseif ( is_array( $decoded ) && isset( $decoded['choices'][0]['message']['content'] ) ) {
+			$content = (string) $decoded['choices'][0]['message']['content'];
+		} elseif ( is_object( $decoded ) && isset( $decoded->error ) ) {
+			$msg = isset( $decoded->error->message ) ? (string) $decoded->error->message : __( 'OpenAI error in pasted response.', 'sheetspilot' );
+			SheetsPilotFunctions::throwError( $msg );
+		} else {
+			// Treat the paste as message.content itself (inner JSON or plain text).
+			$content = $raw;
+		}
+
+		$fake = (object) array(
+			'choices' => array(
+				(object) array(
+					'message' => (object) array(
+						'content' => $content,
+					),
+				),
+			),
+		);
+
+		$parser = new self();
+		return $parser->processGptResponse( $fake );
+	}
+
+	/**
 	 * Parse GPT response, return text or data with type.
 	 */
-	private function processGptResponse( $decodedResponse ){
+	public function processGptResponse( $decodedResponse ){
 		
 		if( empty($decodedResponse) ){
 			SheetsPilotFunctions::throwError(__("Sorry, AI return wrong data",'sheetspilot'));

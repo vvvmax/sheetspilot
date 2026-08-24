@@ -13,6 +13,8 @@ class SheetsPilot_AjaxActions
 {
 	private $lastApplyPromptErrorLogId = 0;
 	private $lastApplyPromptErrorDetailText = '';
+	/** @var bool When true, skip request-log writes (Response Checker dry-run). */
+	private $applyPromptCheckerMode = false;
 
 
 	/**
@@ -257,6 +259,10 @@ class SheetsPilot_AjaxActions
 	 * @return int Log row id, or 0 when logging is unavailable.
 	 */
 	private function rememberApplyPromptErrorLog( $prompt_text, $table_data, $error_message, $existing_log_id = 0, $prompt_metadata = null ) {
+		if ( $this->applyPromptCheckerMode ) {
+			return 0;
+		}
+
 		$existing_log_id = (int) $existing_log_id;
 
 		if ( $existing_log_id > 0 && class_exists( 'SheetsPilot_RequestLog', false ) ) {
@@ -386,6 +392,10 @@ class SheetsPilot_AjaxActions
 	 * @return int Inserted log row id, or 0 when logging is unavailable.
 	 */
 	private function persistApplyPromptRequestLog( $prompt_text, $table_data, $response_action, $response_data, $prompt_metadata = null ) {
+		if ( $this->applyPromptCheckerMode ) {
+			return 0;
+		}
+
 		if ( ! class_exists( 'SheetsPilot_RequestLog' ) ) {
 			return 0;
 		}
@@ -437,6 +447,10 @@ class SheetsPilot_AjaxActions
 	 * @return void
 	 */
 	private function logApplyPromptSession( $label, $data = array() ) {
+		if ( $this->applyPromptCheckerMode ) {
+			return;
+		}
+
 		if ( ! is_array( $data ) ) {
 			$data = array();
 		}
@@ -828,7 +842,7 @@ class SheetsPilot_AjaxActions
 	 * @param string $display_text         Plain preview text.
 	 * @param array  $table_data           Table/cell request data.
 	 * @param bool   $is_post_content_cell Whether the target column is post_content.
-	 * @return mixed Normalized data for the client (insert/show/blocks array or legacy value).
+	 * @return mixed|null Normalized data for the client, or null when post_content cannot be converted.
 	 */
 	private function convertPromptBlocksToClientData( $insert_value, $display_text, $table_data, $is_post_content_cell ) {
 
@@ -915,14 +929,324 @@ class SheetsPilot_AjaxActions
 			}
 		}
 
-		if ( $display_text !== '' ) {
-			return array(
-				'insert' => SheetsPilotFunctions::toString( $insert_value ),
-				'show'   => $display_text,
+		// post_content must be a content-blocks tree (or Elementor layout). Never fall back to
+		// display_text / raw JSON as cell content — that writes truncated plain text silently.
+		return null;
+	}
+
+	/**
+	 * Reject post_content apply when blocks could not be converted (no plain-text fallback).
+	 *
+	 * @param mixed  $converted   Result from convertPromptBlocksToClientData().
+	 * @param string $prompt_text Prompt text for request log.
+	 * @param array  $table_data  Table/cell request data.
+	 * @return mixed Converted value (never null).
+	 */
+	private function requireConvertedPostContentData( $converted, $prompt_text, $table_data ) {
+		if ( $converted !== null && $converted !== '' ) {
+			return $converted;
+		}
+
+		$error_text = __( 'The AI returned JSON that could not be converted into post content blocks, so nothing was written to the cell.', 'sheetspilot' );
+		$this->rememberApplyPromptErrorLog( $prompt_text, $table_data, $error_text );
+		SheetsPilotFunctions::throwError( $error_text );
+	}
+
+	/**
+	 * Map parsed apply_prompt API results to the client action/data payload.
+	 *
+	 * @param array  $results      Parsed GPT/cell-editor result.
+	 * @param string $prompt_text  Prompt text.
+	 * @param array  $table_data   Table/cell request data.
+	 * @param string $column_name  Column name.
+	 * @return array{results:array,response_type:string,instruction_summary:string,mapping_path:string}
+	 */
+	private function mapApplyPromptApiResultsToClient( $results, $prompt_text, $table_data, $column_name ) {
+		$cell_content_type = SheetsPilotFunctions::getVal($results, 'cell_content_type');
+		$is_post_content_cell = ($column_name === 'post_content');
+		$action   = "show_message";
+		$dataValue = "";
+		$mapping_path = 'unknown';
+		$used_fallback_raw = false;
+
+		// Map cell-editor response type to client action and value (replace_text vs show_message).
+		$responseType = SheetsPilotFunctions::getVal($results, "type");
+		$instruction_summary = SheetsPilotFunctions::getVal($results, "instruction_summary", "");
+		if ($responseType === "data") {
+			$action = "replace_text";
+			$mapping_path = 'response_type_data';
+			$dataValue = SheetsPilotFunctions::getVal($results, "data");
+
+
+			if (is_object($dataValue)) {
+				$dataValue = (array) $dataValue;
+			}
+			if ( $this->isApplyPromptRepeaterCell( $cell_content_type, $table_data ) ) {
+				$repeater_rows = $this->normalizeApplyPromptRepeaterData( $dataValue );
+				if ( $repeater_rows !== null ) {
+					$mapping_path = 'data_acf_repeater_list';
+					$dataValue    = $this->buildApplyPromptRepeaterClientData( $repeater_rows );
+				}
+			} elseif ( is_string( $dataValue ) && class_exists( 'SheetsPilot_ContentBlocks' ) ) {
+				$resolved_payload = SheetsPilot_ContentBlocks::resolve_blocks_payload_from_prompt_data( $dataValue );
+				if ( is_array( $resolved_payload ) ) {
+					$dataValue = $resolved_payload;
+					$mapping_path = 'data_string_resolved_to_blocks';
+				}
+			}
+			// GPT returns { "data": ... }; image generation returns { "insert", "show" }. Keep insert/show as-is.
+			if ( is_array( $dataValue ) && ! array_key_exists( 'insert', $dataValue ) ) {
+				$mapping_path = 'data_without_insert_key';
+				$display_text = SheetsPilot_Prompts::getDisplayTextFromPromptResponse($dataValue);
+				$insert_value  = null;
+				if ( class_exists( 'SheetsPilot_ContentBlocks' ) ) {
+					$blocks_payload = SheetsPilot_ContentBlocks::resolve_blocks_payload_from_prompt_data( $dataValue );
+					if ( is_array( $blocks_payload ) ) {
+						$insert_value = $blocks_payload;
+						if ( $display_text === '' && ! empty( $blocks_payload['display_text'] ) ) {
+							$display_text = SheetsPilotFunctions::toString( $blocks_payload['display_text'] );
+						}
+					}
+				}
+				if ( $insert_value === null || $insert_value === '' ) {
+					$insert_value = SheetsPilotFunctions::getVal( $dataValue, 'data' );
+				}
+				if ( $is_post_content_cell && class_exists( 'SheetsPilot_ContentBlocks' ) ) {
+					$mapping_path = 'data_blocks_post_content';
+					$dataValue = $this->requireConvertedPostContentData(
+						$this->convertPromptBlocksToClientData( $insert_value, $display_text, $table_data, true ),
+						$prompt_text,
+						$table_data
+					);
+				} elseif ($display_text !== '') {
+					// Never write display_text alone into post_content — only structured conversion is allowed.
+					if ( $is_post_content_cell ) {
+						$error_text = __( 'The AI returned JSON that could not be converted into post content blocks, so nothing was written to the cell.', 'sheetspilot' );
+						$this->rememberApplyPromptErrorLog( $prompt_text, $table_data, $error_text );
+						SheetsPilotFunctions::throwError( $error_text );
+					}
+					$mapping_path = 'data_insert_show_from_display';
+					$dataValue = array(
+						'insert' => SheetsPilotFunctions::toString($insert_value),
+						'show'   => $display_text,
+					);
+				} else {
+					$mapping_path = 'data_raw_insert_value';
+					$dataValue = $insert_value;
+				}
+			} else {
+				$mapping_path = 'data_has_insert_key';
+			}
+		} elseif ($responseType === "text") {
+			$mapping_path = 'response_type_text';
+			$text_value = SheetsPilotFunctions::getVal($results, "text");
+			$dataValue    = $text_value;
+			if ( $this->isApplyPromptRepeaterCell( $cell_content_type, $table_data ) ) {
+				$repeater_rows = $this->normalizeApplyPromptRepeaterData( $text_value );
+				if ( $repeater_rows !== null ) {
+					$action       = 'replace_text';
+					$mapping_path = 'text_acf_repeater_list';
+					$dataValue    = $this->buildApplyPromptRepeaterClientData( $repeater_rows );
+				}
+			} elseif ( class_exists( 'SheetsPilot_ContentBlocks' ) ) {
+				$blocks_payload = SheetsPilot_ContentBlocks::resolve_blocks_payload_from_prompt_data( $text_value );
+				if ( is_array( $blocks_payload ) ) {
+					$action    = 'replace_text';
+					$mapping_path = 'text_resolved_to_blocks';
+					$dataValue = $blocks_payload;
+					$display_text = SheetsPilot_Prompts::getDisplayTextFromPromptResponse( $blocks_payload );
+					if ( $display_text === '' && ! empty( $blocks_payload['display_text'] ) ) {
+						$display_text = SheetsPilotFunctions::toString( $blocks_payload['display_text'] );
+					}
+					$dataValue = $this->requireConvertedPostContentData(
+						$this->convertPromptBlocksToClientData(
+							$blocks_payload,
+							$display_text,
+							$table_data,
+							$is_post_content_cell
+						),
+						$prompt_text,
+						$table_data
+					);
+				} elseif ( $is_post_content_cell ) {
+					// post_content never accepts plain-text fallback from a JSON/text AI reply.
+					$raw = is_string( $text_value ) ? trim( $text_value ) : '';
+					$looks_like_json = ( $raw !== '' && ( $raw[0] === '{' || $raw[0] === '[' ) );
+					$error_text = $looks_like_json
+						? __( 'The AI returned what looks like cell data, but it could not be parsed as JSON, so nothing was written to the cell.', 'sheetspilot' )
+						: __( 'The AI returned a plain text reply instead of structured post content blocks, so nothing was written to the cell.', 'sheetspilot' );
+					$this->rememberApplyPromptErrorLog( $prompt_text, $table_data, $error_text );
+					SheetsPilotFunctions::throwError( $error_text );
+				}
+			}
+		} elseif ($responseType === "pending_image") {
+			$mapping_path = 'response_type_pending_image';
+			$action = "pending_image";
+			$dataValue = array(
+				'request_id'  => SheetsPilotFunctions::getVal($results, 'request_id'),
+				'preview_url' => SheetsPilotFunctions::getVal($results, 'preview_url'),
+				'post_id'     => (int) SheetsPilotFunctions::getVal($results, 'post_id'),
+				'column'      => SheetsPilotFunctions::getVal($results, 'column'),
+				'file_size'   => (int) SheetsPilotFunctions::getVal($results, 'file_size'),
+				'file_type'   => SheetsPilotFunctions::getVal($results, 'file_type'),
+				'width'       => (int) SheetsPilotFunctions::getVal($results, 'width'),
+				'height'      => (int) SheetsPilotFunctions::getVal($results, 'height'),
 			);
 		}
 
-		return $insert_value;
+		// Fallback: use raw message content when no structured value was returned.
+		if ( empty( $dataValue ) ) {
+			$mapping_path = 'data_value_empty_before_fallback';
+			$raw_content = '';
+			if ( isset( $results['choices'][0]['message']['content'] ) ) {
+				$raw_content = (string) $results['choices'][0]['message']['content'];
+			} elseif ( class_exists( 'SheetsPilot_UseChatGPT', false ) ) {
+				$last = SheetsPilot_UseChatGPT::getLastRequestResponse();
+				$last_response = SheetsPilotFunctions::getVal( $last, 'response' );
+				if ( is_object( $last_response ) && isset( $last_response->choices[0]->message->content ) ) {
+					$raw_content = (string) $last_response->choices[0]->message->content;
+				} elseif ( is_array( $last_response ) && isset( $last_response['choices'][0]['message']['content'] ) ) {
+					$raw_content = (string) $last_response['choices'][0]['message']['content'];
+				}
+			}
+
+			if ( $raw_content !== '' ) {
+				$used_fallback_raw = true;
+				$mapping_path = 'fallback_raw_message_content';
+				$blocks_payload = SheetsPilot_ContentBlocks::resolve_blocks_payload_from_prompt_data( $raw_content );
+				if ( is_array( $blocks_payload ) ) {
+					$action       = 'replace_text';
+					$display_text = SheetsPilot_Prompts::getDisplayTextFromPromptResponse( $blocks_payload );
+					$dataValue    = $this->requireConvertedPostContentData(
+						$this->convertPromptBlocksToClientData(
+							$blocks_payload,
+							$display_text,
+							$table_data,
+							$is_post_content_cell
+						),
+						$prompt_text,
+						$table_data
+					);
+				} else {
+					$mapping_path = 'fallback_raw_parse_failed';
+
+					$error_text = __( 'Error parsing response post content data. Please check with the developers', 'sheetspilot' );
+					$this->rememberApplyPromptErrorLog( $prompt_text, $table_data, $error_text );
+					SheetsPilotFunctions::throwError( $error_text );
+		
+				}
+			}
+		}
+
+		
+		// Build normalized result for the client (action + data).
+		// For typed cells (post_content/author/status), return both "insert" and "show" values.
+		$is_typed_display_cell = ($is_post_content_cell || ! empty($cell_content_type));
+
+		$display_value = '';
+		$insert_value  = $dataValue;
+		if ( is_array( $dataValue ) && array_key_exists( 'insert', $dataValue ) ) {
+			$insert_value  = SheetsPilotFunctions::getVal( $dataValue, 'insert' );
+			$display_value = SheetsPilotFunctions::getVal( $dataValue, 'show' );
+		} else {
+			$display_value = SheetsPilotFunctions::getVal( $dataValue, 'display_text' );
+		}
+
+		if ( empty( $display_value ) && $is_typed_display_cell && $action === 'replace_text' && is_string( $insert_value ) && $insert_value !== '' ) {
+			$display_value = SheetsPilot_Prompts::get_plain_text_for_prompt_display( $insert_value, $cell_content_type );
+		}
+
+		if ( $action === 'replace_text' && is_array( $insert_value ) ) {
+			$insert_value = SheetsPilotFunctions::toString( $insert_value );
+		}
+
+		// Output with display value.
+		if ( ! empty( $display_value ) ) {
+			$display_value = SheetsPilot_Prompts::modifyDisplayTextForPromptDisplay( $display_value );
+
+			$results = array(
+				'action' => $action,
+				'data'   => array(
+					'insert' => $insert_value,
+					'show'   => $display_value,
+				),
+			);
+			if ( is_array( $dataValue ) && isset( $dataValue['blocks'] ) && is_array( $dataValue['blocks'] ) ) {
+				$results['data']['blocks'] = $dataValue['blocks'];
+			}
+			if ( is_array( $dataValue ) && ! empty( $dataValue['is_elementor'] ) ) {
+				$results['data']['is_elementor'] = true;
+			}
+		} else {
+			$results = array(
+				'action' => $action,
+				'data'   => $dataValue,
+			);
+		}
+
+		// show_message: explain why nothing was written; reject huge payloads as errors.
+		$show_message_suppressed = false;
+		$show_message_reason     = '';
+		$show_message_raw_len    = 0;
+		if ( $results['action'] === 'show_message' ) {
+			$show_message_reason  = $this->getApplyPromptShowMessageReason( $responseType, $mapping_path, $dataValue );
+			$raw_show_message     = $this->stringifyApplyPromptShowMessageData( $results['data'] );
+			$show_message_raw_len = strlen( $raw_show_message );
+			$results['reason']    = $show_message_reason;
+
+			if ( $show_message_raw_len > 200 ) {
+				$show_message_suppressed = true;
+				$results['data']         = $show_message_reason;
+			} elseif ( $raw_show_message !== '' ) {
+				$results['data'] = $show_message_reason . "\n\n" . $raw_show_message;
+			} else {
+				$results['data'] = $show_message_reason;
+			}
+		}
+
+		$output_branch = ! empty( $display_value ) ? 'insert_show_pair' : 'raw_data_value';
+		$this->logApplyPromptSession(
+			'applyPromptPipeline',
+			array(
+				'response_type'            => (string) $responseType,
+				'mapping_path'             => $mapping_path,
+				'used_fallback_raw'        => $used_fallback_raw,
+				'output_branch'            => $output_branch,
+				'action'                   => (string) $results['action'],
+				'cell_content_type'        => (string) $cell_content_type,
+				'is_post_content_cell'     => $is_post_content_cell,
+				'is_typed_display_cell'    => $is_typed_display_cell,
+				'instruction_summary'      => $this->truncateSessionLogText( $instruction_summary, 80 ),
+				'mapped_data_value'        => $this->summarizeValueForApplyPromptSessionLog( $dataValue ),
+				'client_data'              => $this->summarizeValueForApplyPromptSessionLog( $results['data'] ),
+				'empty_data_rejected'      => $this->isApplyPromptClientDataEmpty( $results['data'], $results['action'] ),
+				'empty_data_reason'        => $this->getApplyPromptClientDataEmptyReason( $results['data'], $results['action'] ),
+				'show_message_reason'      => $show_message_reason,
+				'show_message_raw_len'     => $show_message_raw_len,
+				'show_message_suppressed'  => $show_message_suppressed,
+			)
+		);
+
+		if ( $show_message_suppressed ) {
+			$this->logApplyPromptSession(
+				'applyPromptShowMessageSuppressed',
+				array(
+					'reason'  => $show_message_reason,
+					'raw_len' => $show_message_raw_len,
+				)
+			);
+			$this->rememberApplyPromptErrorLog( $prompt_text, $table_data, $show_message_reason );
+			SheetsPilotFunctions::throwError( $show_message_reason );
+		}
+
+
+
+		return array(
+			'results'              => $results,
+			'response_type'        => (string) $responseType,
+			'instruction_summary'  => (string) $instruction_summary,
+			'mapping_path'         => (string) $mapping_path,
+		);
 	}
 
 	/**
@@ -1040,256 +1364,10 @@ class SheetsPilot_AjaxActions
 		}
 
 		
-		$cell_content_type = SheetsPilotFunctions::getVal($results, 'cell_content_type');
-		$is_post_content_cell = ($column_name === 'post_content');
-		$action   = "show_message";
-		$dataValue = "";
-		$mapping_path = 'unknown';
-		$used_fallback_raw = false;
-
-		// Map cell-editor response type to client action and value (replace_text vs show_message).
-		$responseType = SheetsPilotFunctions::getVal($results, "type");
-		$instruction_summary = SheetsPilotFunctions::getVal($results, "instruction_summary", "");
-		if ($responseType === "data") {
-			$action = "replace_text";
-			$mapping_path = 'response_type_data';
-			$dataValue = SheetsPilotFunctions::getVal($results, "data");
-
-
-			if (is_object($dataValue)) {
-				$dataValue = (array) $dataValue;
-			}
-			if ( $this->isApplyPromptRepeaterCell( $cell_content_type, $table_data ) ) {
-				$repeater_rows = $this->normalizeApplyPromptRepeaterData( $dataValue );
-				if ( $repeater_rows !== null ) {
-					$mapping_path = 'data_acf_repeater_list';
-					$dataValue    = $this->buildApplyPromptRepeaterClientData( $repeater_rows );
-				}
-			} elseif ( is_string( $dataValue ) && class_exists( 'SheetsPilot_ContentBlocks' ) ) {
-				$resolved_payload = SheetsPilot_ContentBlocks::resolve_blocks_payload_from_prompt_data( $dataValue );
-				if ( is_array( $resolved_payload ) ) {
-					$dataValue = $resolved_payload;
-					$mapping_path = 'data_string_resolved_to_blocks';
-				}
-			}
-			// GPT returns { "data": ... }; image generation returns { "insert", "show" }. Keep insert/show as-is.
-			if ( is_array( $dataValue ) && ! array_key_exists( 'insert', $dataValue ) ) {
-				$mapping_path = 'data_without_insert_key';
-				$display_text = SheetsPilot_Prompts::getDisplayTextFromPromptResponse($dataValue);
-				$insert_value  = null;
-				if ( class_exists( 'SheetsPilot_ContentBlocks' ) ) {
-					$blocks_payload = SheetsPilot_ContentBlocks::resolve_blocks_payload_from_prompt_data( $dataValue );
-					if ( is_array( $blocks_payload ) ) {
-						$insert_value = $blocks_payload;
-						if ( $display_text === '' && ! empty( $blocks_payload['display_text'] ) ) {
-							$display_text = SheetsPilotFunctions::toString( $blocks_payload['display_text'] );
-						}
-					}
-				}
-				if ( $insert_value === null || $insert_value === '' ) {
-					$insert_value = SheetsPilotFunctions::getVal( $dataValue, 'data' );
-				}
-				if ( $is_post_content_cell && class_exists( 'SheetsPilot_ContentBlocks' ) ) {
-					$mapping_path = 'data_blocks_post_content';
-					$dataValue = $this->convertPromptBlocksToClientData( $insert_value, $display_text, $table_data, true );
-				} elseif ($display_text !== '') {
-					$mapping_path = 'data_insert_show_from_display';
-					$dataValue = array(
-						'insert' => SheetsPilotFunctions::toString($insert_value),
-						'show'   => $display_text,
-					);
-				} else {
-					$mapping_path = 'data_raw_insert_value';
-					$dataValue = $insert_value;
-				}
-			} else {
-				$mapping_path = 'data_has_insert_key';
-			}
-		} elseif ($responseType === "text") {
-			$mapping_path = 'response_type_text';
-			$text_value = SheetsPilotFunctions::getVal($results, "text");
-			$dataValue    = $text_value;
-			if ( $this->isApplyPromptRepeaterCell( $cell_content_type, $table_data ) ) {
-				$repeater_rows = $this->normalizeApplyPromptRepeaterData( $text_value );
-				if ( $repeater_rows !== null ) {
-					$action       = 'replace_text';
-					$mapping_path = 'text_acf_repeater_list';
-					$dataValue    = $this->buildApplyPromptRepeaterClientData( $repeater_rows );
-				}
-			} elseif ( class_exists( 'SheetsPilot_ContentBlocks' ) ) {
-				$blocks_payload = SheetsPilot_ContentBlocks::resolve_blocks_payload_from_prompt_data( $text_value );
-				if ( is_array( $blocks_payload ) ) {
-					$action    = 'replace_text';
-					$mapping_path = 'text_resolved_to_blocks';
-					$dataValue = $blocks_payload;
-					$display_text = SheetsPilot_Prompts::getDisplayTextFromPromptResponse( $blocks_payload );
-					if ( $display_text === '' && ! empty( $blocks_payload['display_text'] ) ) {
-						$display_text = SheetsPilotFunctions::toString( $blocks_payload['display_text'] );
-					}
-					$dataValue = $this->convertPromptBlocksToClientData(
-						$blocks_payload,
-						$display_text,
-						$table_data,
-						$is_post_content_cell
-					);
-				}
-			}
-		} elseif ($responseType === "pending_image") {
-			$mapping_path = 'response_type_pending_image';
-			$action = "pending_image";
-			$dataValue = array(
-				'request_id'  => SheetsPilotFunctions::getVal($results, 'request_id'),
-				'preview_url' => SheetsPilotFunctions::getVal($results, 'preview_url'),
-				'post_id'     => (int) SheetsPilotFunctions::getVal($results, 'post_id'),
-				'column'      => SheetsPilotFunctions::getVal($results, 'column'),
-				'file_size'   => (int) SheetsPilotFunctions::getVal($results, 'file_size'),
-				'file_type'   => SheetsPilotFunctions::getVal($results, 'file_type'),
-				'width'       => (int) SheetsPilotFunctions::getVal($results, 'width'),
-				'height'      => (int) SheetsPilotFunctions::getVal($results, 'height'),
-			);
-		}
-
-		// Fallback: use raw message content when no structured value was returned.
-		if ( empty( $dataValue ) ) {
-			$mapping_path = 'data_value_empty_before_fallback';
-			$raw_content = '';
-			if ( isset( $results['choices'][0]['message']['content'] ) ) {
-				$raw_content = (string) $results['choices'][0]['message']['content'];
-			} elseif ( class_exists( 'SheetsPilot_UseChatGPT', false ) ) {
-				$last = SheetsPilot_UseChatGPT::getLastRequestResponse();
-				$last_response = SheetsPilotFunctions::getVal( $last, 'response' );
-				if ( is_object( $last_response ) && isset( $last_response->choices[0]->message->content ) ) {
-					$raw_content = (string) $last_response->choices[0]->message->content;
-				} elseif ( is_array( $last_response ) && isset( $last_response['choices'][0]['message']['content'] ) ) {
-					$raw_content = (string) $last_response['choices'][0]['message']['content'];
-				}
-			}
-
-			if ( $raw_content !== '' ) {
-				$used_fallback_raw = true;
-				$mapping_path = 'fallback_raw_message_content';
-				$blocks_payload = SheetsPilot_ContentBlocks::resolve_blocks_payload_from_prompt_data( $raw_content );
-				if ( is_array( $blocks_payload ) ) {
-					$action       = 'replace_text';
-					$display_text = SheetsPilot_Prompts::getDisplayTextFromPromptResponse( $blocks_payload );
-					$dataValue    = $this->convertPromptBlocksToClientData(
-						$blocks_payload,
-						$display_text,
-						$table_data,
-						$is_post_content_cell
-					);
-				} else {
-					$mapping_path = 'fallback_raw_parse_failed';
-
-					$error_text = __( 'Error parsing response post content data. Please check with the developers', 'sheetspilot' );
-					$this->rememberApplyPromptErrorLog( $prompt_text, $table_data, $error_text );
-					SheetsPilotFunctions::throwError( $error_text );
-		
-				}
-			}
-		}
-
-		
-		// Build normalized result for the client (action + data).
-		// For typed cells (post_content/author/status), return both "insert" and "show" values.
-		$is_typed_display_cell = ($is_post_content_cell || ! empty($cell_content_type));
-
-		$display_value = '';
-		$insert_value  = $dataValue;
-		if ( is_array( $dataValue ) && array_key_exists( 'insert', $dataValue ) ) {
-			$insert_value  = SheetsPilotFunctions::getVal( $dataValue, 'insert' );
-			$display_value = SheetsPilotFunctions::getVal( $dataValue, 'show' );
-		} else {
-			$display_value = SheetsPilotFunctions::getVal( $dataValue, 'display_text' );
-		}
-
-		if ( empty( $display_value ) && $is_typed_display_cell && $action === 'replace_text' && is_string( $insert_value ) && $insert_value !== '' ) {
-			$display_value = SheetsPilot_Prompts::get_plain_text_for_prompt_display( $insert_value, $cell_content_type );
-		}
-
-		if ( $action === 'replace_text' && is_array( $insert_value ) ) {
-			$insert_value = SheetsPilotFunctions::toString( $insert_value );
-		}
-
-		// Output with display value.
-		if ( ! empty( $display_value ) ) {
-			$display_value = SheetsPilot_Prompts::modifyDisplayTextForPromptDisplay( $display_value );
-
-			$results = array(
-				'action' => $action,
-				'data'   => array(
-					'insert' => $insert_value,
-					'show'   => $display_value,
-				),
-			);
-			if ( is_array( $dataValue ) && isset( $dataValue['blocks'] ) && is_array( $dataValue['blocks'] ) ) {
-				$results['data']['blocks'] = $dataValue['blocks'];
-			}
-			if ( is_array( $dataValue ) && ! empty( $dataValue['is_elementor'] ) ) {
-				$results['data']['is_elementor'] = true;
-			}
-		} else {
-			$results = array(
-				'action' => $action,
-				'data'   => $dataValue,
-			);
-		}
-
-		// show_message: explain why nothing was written; reject huge payloads as errors.
-		$show_message_suppressed = false;
-		$show_message_reason     = '';
-		$show_message_raw_len    = 0;
-		if ( $results['action'] === 'show_message' ) {
-			$show_message_reason  = $this->getApplyPromptShowMessageReason( $responseType, $mapping_path, $dataValue );
-			$raw_show_message     = $this->stringifyApplyPromptShowMessageData( $results['data'] );
-			$show_message_raw_len = strlen( $raw_show_message );
-			$results['reason']    = $show_message_reason;
-
-			if ( $show_message_raw_len > 200 ) {
-				$show_message_suppressed = true;
-				$results['data']         = $show_message_reason;
-			} elseif ( $raw_show_message !== '' ) {
-				$results['data'] = $show_message_reason . "\n\n" . $raw_show_message;
-			} else {
-				$results['data'] = $show_message_reason;
-			}
-		}
-
-		$output_branch = ! empty( $display_value ) ? 'insert_show_pair' : 'raw_data_value';
-		$this->logApplyPromptSession(
-			'applyPromptPipeline',
-			array(
-				'response_type'            => (string) $responseType,
-				'mapping_path'             => $mapping_path,
-				'used_fallback_raw'        => $used_fallback_raw,
-				'output_branch'            => $output_branch,
-				'action'                   => (string) $results['action'],
-				'cell_content_type'        => (string) $cell_content_type,
-				'is_post_content_cell'     => $is_post_content_cell,
-				'is_typed_display_cell'    => $is_typed_display_cell,
-				'instruction_summary'      => $this->truncateSessionLogText( $instruction_summary, 80 ),
-				'mapped_data_value'        => $this->summarizeValueForApplyPromptSessionLog( $dataValue ),
-				'client_data'              => $this->summarizeValueForApplyPromptSessionLog( $results['data'] ),
-				'empty_data_rejected'      => $this->isApplyPromptClientDataEmpty( $results['data'], $results['action'] ),
-				'empty_data_reason'        => $this->getApplyPromptClientDataEmptyReason( $results['data'], $results['action'] ),
-				'show_message_reason'      => $show_message_reason,
-				'show_message_raw_len'     => $show_message_raw_len,
-				'show_message_suppressed'  => $show_message_suppressed,
-			)
-		);
-
-		if ( $show_message_suppressed ) {
-			$this->logApplyPromptSession(
-				'applyPromptShowMessageSuppressed',
-				array(
-					'reason'  => $show_message_reason,
-					'raw_len' => $show_message_raw_len,
-				)
-			);
-			$this->rememberApplyPromptErrorLog( $prompt_text, $table_data, $show_message_reason );
-			SheetsPilotFunctions::throwError( $show_message_reason );
-		}
-
+		$mapped = $this->mapApplyPromptApiResultsToClient( $results, $prompt_text, $table_data, $column_name );
+		$results = $mapped['results'];
+		$responseType = $mapped['response_type'];
+		$instruction_summary = $mapped['instruction_summary'];
 
 		// Attach last request/response for debug display (formatted in PHP for readability).
 		$prompt_metadata = $this->collectApplyPromptMetadata();
@@ -1781,6 +1859,168 @@ class SheetsPilot_AjaxActions
 	}
 
 	/**
+	 * AJAX: dry-run apply_prompt mapping against a pasted AI Response from the request log.
+	 *
+	 * Does not call OpenAI and does not write request logs.
+	 */
+	private function responseCheckerRunAjax() {
+		if ( SheetsPilotGlobals::$isPro != true || ! class_exists( 'SheetsPilot_UseChatGPT', false ) ) {
+			SheetsPilotFunctions::throwError( __( 'Response Checker is available in SheetsPilot Pro only.', 'sheetspilot' ) );
+		}
+
+		$raw_payload = SheetsPilotFunctions::getPostGetVariable( 'data', '', SheetsPilotFunctions::SANITIZE_NOTHING );
+		if ( ! is_string( $raw_payload ) || $raw_payload === '' ) {
+			SheetsPilotFunctions::throwError( __( 'Missing request payload.', 'sheetspilot' ) );
+		}
+
+		$arr = json_decode( $raw_payload, true );
+		if ( json_last_error() !== JSON_ERROR_NONE || ! is_array( $arr ) ) {
+			$arr = json_decode( wp_unslash( $raw_payload ), true );
+		}
+		if ( ! is_array( $arr ) ) {
+			SheetsPilotFunctions::throwError( __( 'Invalid JSON payload.', 'sheetspilot' ) );
+		}
+
+		$ai_response   = isset( $arr['ai_response'] ) ? (string) $arr['ai_response'] : '';
+		$metadata_raw  = isset( $arr['metadata'] ) ? (string) $arr['metadata'] : '';
+		$context       = $this->buildResponseCheckerContext( $metadata_raw, $arr );
+		$table_data    = $context['table_data'];
+		$prompt_text   = $context['prompt_text'];
+		$column_name   = $context['column_name'];
+
+		$this->applyPromptCheckerMode = true;
+		$parsed                       = null;
+		$mapped                       = null;
+		$error_message                = '';
+
+		try {
+			$parsed = SheetsPilot_UseChatGPT::parseApplyPromptAiResponse( $ai_response );
+			if ( ! isset( $parsed['cell_content_type'] ) ) {
+				$parsed['cell_content_type'] = $context['cell_content_type'];
+			}
+
+			$mapped = $this->mapApplyPromptApiResultsToClient( $parsed, $prompt_text, $table_data, $column_name );
+			$client = $mapped['results'];
+
+			if ( $this->isApplyPromptClientDataEmpty( $client['data'], $client['action'] ) ) {
+				$error_message = isset( SheetsPilotGlobals::$editorScriptLocalization['apply_prompt_text_1'] )
+					? SheetsPilotGlobals::$editorScriptLocalization['apply_prompt_text_1']
+					: __( 'Apply prompt did not return replacement text.', 'sheetspilot' );
+				SheetsPilotFunctions::throwError( $error_message );
+			}
+
+			$this->consumeBufferedOutput();
+			SheetsPilotHelper::ajaxResponseSuccess(
+				__( 'Response check complete.', 'sheetspilot' ),
+				array(
+					'ok'           => true,
+					'parsed'       => $parsed,
+					'mapping_path' => $mapped['mapping_path'],
+					'response_type'=> $mapped['response_type'],
+					'client'       => $client,
+					'context'      => array(
+						'column'   => $column_name,
+						'post_id'  => isset( $table_data['postId'] ) ? (int) $table_data['postId'] : 0,
+						'is_elementor' => ! empty( $table_data['is_elementor'] ),
+					),
+				)
+			);
+		} catch ( Throwable $e ) {
+			$error_message = $e->getMessage();
+			$this->consumeBufferedOutput();
+			SheetsPilotHelper::ajaxResponseSuccess(
+				__( 'Response check failed (same as apply_prompt error path).', 'sheetspilot' ),
+				array(
+					'ok'            => false,
+					'error'         => $error_message,
+					'parsed'        => $parsed,
+					'mapping_path'  => is_array( $mapped ) ? $mapped['mapping_path'] : '',
+					'response_type' => is_array( $mapped ) ? $mapped['response_type'] : '',
+					'client'        => is_array( $mapped ) ? $mapped['results'] : null,
+					'context'       => array(
+						'column'       => $column_name,
+						'post_id'      => isset( $table_data['postId'] ) ? (int) $table_data['postId'] : 0,
+						'is_elementor' => ! empty( $table_data['is_elementor'] ),
+					),
+				)
+			);
+		} finally {
+			$this->applyPromptCheckerMode = false;
+		}
+	}
+
+	/**
+	 * Build table/prompt context for Response Checker from pasted metadata / overrides.
+	 *
+	 * @param string               $metadata_raw Pasted log metadata JSON.
+	 * @param array<string,mixed>  $arr          AJAX payload.
+	 * @return array{table_data:array,prompt_text:string,column_name:string,cell_content_type:string}
+	 */
+	private function buildResponseCheckerContext( $metadata_raw, $arr ) {
+		$meta = array();
+		$metadata_raw = trim( (string) $metadata_raw );
+		if ( $metadata_raw !== '' ) {
+			$decoded = json_decode( $metadata_raw, true );
+			if ( json_last_error() !== JSON_ERROR_NONE || ! is_array( $decoded ) ) {
+				$decoded = json_decode( wp_unslash( $metadata_raw ), true );
+			}
+			if ( is_array( $decoded ) ) {
+				$meta = $decoded;
+			}
+		}
+
+		$table_data = array();
+		if ( isset( $meta['table_data'] ) && is_array( $meta['table_data'] ) ) {
+			$table_data = $meta['table_data'];
+		}
+
+		if ( isset( $arr['table_data'] ) && is_array( $arr['table_data'] ) ) {
+			$table_data = array_merge( $table_data, $arr['table_data'] );
+		}
+
+		$column_name = '';
+		if ( isset( $arr['column'] ) && $arr['column'] !== '' ) {
+			$column_name = sanitize_key( (string) $arr['column'] );
+		} elseif ( isset( $meta['column'] ) ) {
+			$column_name = sanitize_key( (string) $meta['column'] );
+		} elseif ( isset( $table_data['column'] ) ) {
+			$column_name = sanitize_key( (string) $table_data['column'] );
+		}
+		if ( $column_name === '' ) {
+			$column_name = 'post_content';
+		}
+		$table_data['column'] = $column_name;
+
+		if ( empty( $table_data['postId'] ) && ! empty( $meta['post_id'] ) ) {
+			$table_data['postId'] = (string) absint( $meta['post_id'] );
+		}
+		if ( ! isset( $table_data['is_elementor'] ) && isset( $meta['table_data']['is_elementor'] ) ) {
+			$table_data['is_elementor'] = $meta['table_data']['is_elementor'];
+		}
+
+		$prompt_text = '';
+		if ( isset( $arr['prompt_text'] ) && is_string( $arr['prompt_text'] ) ) {
+			$prompt_text = trim( $arr['prompt_text'] );
+		} elseif ( isset( $meta['prompt_text'] ) ) {
+			$prompt_text = trim( (string) $meta['prompt_text'] );
+		}
+
+		$cell_content_type = '';
+		if ( isset( $arr['cell_content_type'] ) ) {
+			$cell_content_type = sanitize_key( (string) $arr['cell_content_type'] );
+		} elseif ( isset( $meta['cell_content_type'] ) ) {
+			$cell_content_type = sanitize_key( (string) $meta['cell_content_type'] );
+		}
+
+		return array(
+			'table_data'         => $table_data,
+			'prompt_text'        => $prompt_text,
+			'column_name'        => $column_name,
+			'cell_content_type'  => $cell_content_type,
+		);
+	}
+
+	/**
 	 * AJAX: compress a media-library image for the Prompt Tester Compress Image tab.
 	 */
 	private function promptTesterCompressImageAjax() {
@@ -1985,6 +2225,18 @@ class SheetsPilot_AjaxActions
 				$this->logPromptTesterFailure( 'prompt_tester_compress_image', $e->getMessage() );
 				$bufferedOutput = $this->consumeBufferedOutput();
 				$this->onException($e, '', $bufferedOutput);
+			}
+			return;
+		}
+
+		if ( $action === 'response_checker_run' ) {
+			try {
+				$nonce = SheetsPilotFunctions::getPostGetVariable( 'nonce', '', SheetsPilotFunctions::SANITIZE_NOTHING );
+				SheetsPilotHelper::verifyNonce( $nonce );
+				$this->responseCheckerRunAjax();
+			} catch ( Throwable $e ) {
+				$bufferedOutput = $this->consumeBufferedOutput();
+				$this->onException( $e, '', $bufferedOutput );
 			}
 			return;
 		}

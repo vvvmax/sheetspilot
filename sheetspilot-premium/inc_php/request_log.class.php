@@ -442,6 +442,31 @@ class SheetsPilot_RequestLog {
 	}
 
 	/**
+	 * Build Response Checker preload payload from a log row.
+	 *
+	 * @param array<string,mixed> $row Log row.
+	 * @return array<string,mixed>
+	 */
+	public static function buildResponseCheckerPreloadFromRow( $row ) {
+		$response = isset( $row['response'] ) ? $row['response'] : '';
+		$metadata = isset( $row['metadata'] ) ? $row['metadata'] : '';
+
+		if ( is_array( $response ) || is_object( $response ) ) {
+			$response = wp_json_encode( $response, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+		}
+		if ( is_array( $metadata ) || is_object( $metadata ) ) {
+			$metadata = wp_json_encode( $metadata, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+		}
+
+		return array(
+			'tab'         => 'checker',
+			'log_id'      => isset( $row['id'] ) ? absint( $row['id'] ) : 0,
+			'ai_response' => is_string( $response ) ? $response : '',
+			'metadata'    => is_string( $metadata ) ? $metadata : '',
+		);
+	}
+
+	/**
 	 * Build Prompt Tester preload payload from a log row.
 	 *
 	 * @param array<string,mixed> $row Log row.

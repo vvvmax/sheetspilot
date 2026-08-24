@@ -99,10 +99,15 @@ class SheetsPilot_PluginViewPromptTester {
 
 		$prompt_tester_preload = null;
 		$from_log_id           = SheetsPilotFunctions::getGetVar( 'from_log', '', SheetsPilotFunctions::SANITIZE_ID );
+		$from_log_checker      = SheetsPilotFunctions::getGetVar( 'checker', '', SheetsPilotFunctions::SANITIZE_KEY );
 		if ( $from_log_id > 0 && class_exists( 'SheetsPilot_RequestLog', false ) ) {
 			$log_row = SheetsPilot_RequestLog::getById( $from_log_id );
 			if ( is_array( $log_row ) ) {
-				$prompt_tester_preload = SheetsPilot_RequestLog::buildPromptTesterPreloadFromRow( $log_row );
+				if ( $from_log_checker === '1' || $from_log_checker === 'true' ) {
+					$prompt_tester_preload = SheetsPilot_RequestLog::buildResponseCheckerPreloadFromRow( $log_row );
+				} else {
+					$prompt_tester_preload = SheetsPilot_RequestLog::buildPromptTesterPreloadFromRow( $log_row );
+				}
 			}
 		}
 
@@ -160,6 +165,8 @@ class SheetsPilot_PluginViewPromptTester {
 			<a href="#ubai_prompt_tester_tab_image" class="nav-tab" data-tab="image"><?php echo esc_html__( 'Image Requests', 'sheetspilot' ); ?></a>
 
 			<a href="#ubai_prompt_tester_tab_compress" class="nav-tab" data-tab="compress"><?php echo esc_html__( 'Compress Image', 'sheetspilot' ); ?></a>
+
+			<a href="#ubai_prompt_tester_tab_checker" class="nav-tab" data-tab="checker"><?php echo esc_html__( 'Response Checker', 'sheetspilot' ); ?></a>
 
 		</h2>
 
@@ -492,6 +499,48 @@ class SheetsPilot_PluginViewPromptTester {
 					</div>
 
 				</div>
+
+			</div>
+
+		</div>
+
+
+
+		<div id="ubai_prompt_tester_tab_checker" class="ubai-prompt-tester-tab-panel" data-tab-panel="checker" style="display:none;">
+
+			<div style="margin: 16px 0; display: grid; gap: 12px; max-width: 980px;">
+
+				<p class="description">
+
+					<?php echo esc_html__( 'Paste the AI Response from the request log (and optionally Metadata) to replay the same apply_prompt parsing/mapping used by Actions — without calling OpenAI.', 'sheetspilot' ); ?>
+
+				</p>
+
+				<label for="ubai_response_checker_ai"><strong><?php echo esc_html__( 'AI Response (from log → Response)', 'sheetspilot' ); ?></strong></label>
+
+				<textarea id="ubai_response_checker_ai" rows="14" class="large-text code" spellcheck="false" placeholder="<?php echo esc_attr__( 'Paste OpenAI chat.completion JSON, or the message.content JSON/text…', 'sheetspilot' ); ?>"></textarea>
+
+				<label for="ubai_response_checker_meta"><strong><?php echo esc_html__( 'Metadata (optional, from log → Metadata)', 'sheetspilot' ); ?></strong></label>
+
+				<textarea id="ubai_response_checker_meta" rows="10" class="large-text code" spellcheck="false" placeholder="<?php echo esc_attr__( 'Provides column, post_id, is_elementor, table_data context…', 'sheetspilot' ); ?>"></textarea>
+
+				<p>
+
+					<button type="button" class="button button-primary" id="ubai_response_checker_run">
+
+						<?php esc_html_e( 'Check response', 'sheetspilot' ); ?>
+
+					</button>
+
+					<span id="ubai_response_checker_loader" style="margin-left:8px;display:none;"><?php esc_html_e( 'Checking…', 'sheetspilot' ); ?></span>
+
+				</p>
+
+				<div id="ubai_response_checker_status" style="display:none;padding:10px 12px;border-radius:2px;font-weight:600;"></div>
+
+				<label for="ubai_response_checker_result"><strong><?php echo esc_html__( 'Actions result', 'sheetspilot' ); ?></strong></label>
+
+				<pre id="ubai_response_checker_result" class="unlimited-ai-log-pre large-text code" style="min-height:220px;max-height:560px;overflow:auto;background:#fafafa;padding:12px;border:1px solid #c3c4c7;border-radius:2px;white-space:pre-wrap;word-break:break-word;"></pre>
 
 			</div>
 

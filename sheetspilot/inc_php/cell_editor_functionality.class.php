@@ -39,7 +39,7 @@ class SheetsPilotCellEditor
 					}
 
 					if (substr($data['bulkActionColumnName'], 0, 8) == 'plugins_') {
-						update_post_meta($s_id,  substr($data['bulkActionColumnName'], 8),  $data['bulkActionValues'][0]);
+						SheetsPilotPluginsJetEngine::save_column_meta($s_id, $data['bulkActionColumnName'], $data['bulkActionValues'][0]);
 						continue;
 					}
 
@@ -447,7 +447,7 @@ class SheetsPilotCellEditor
 						break;
 					}
 					if (substr($s_post_info['column'], 0, 8) == 'plugins_') {
-						update_post_meta($s_post_info['post_id'],  substr($s_post_info['column'], 8),  $s_post_info['value']);
+						SheetsPilotPluginsJetEngine::save_column_meta($s_post_info['post_id'], $s_post_info['column'], $s_post_info['value']);
 						break;
 					}
 					wp_update_post([
@@ -540,6 +540,10 @@ class SheetsPilotCellEditor
 						update_field(substr($s_post_info['column'], 4),  $html, $s_post_info['post_id']);
 						break;
 					}
+					if (substr($s_post_info['column'], 0, 8) == 'plugins_') {
+						SheetsPilotPluginsJetEngine::save_column_meta($s_post_info['post_id'], $s_post_info['column'], $html);
+						break;
+					}
 					wp_update_post([
 						'ID' => $s_post_info['post_id'],
 						$s_post_info['column'] =>  $html,
@@ -570,7 +574,7 @@ class SheetsPilotCellEditor
 						break;
 					}
 					if (substr($s_post_info['column'], 0, 8) == 'plugins_') {
-						update_post_meta($s_post_info['post_id'],  substr($s_post_info['column'], 8),  $s_post_info['value']);
+						SheetsPilotPluginsJetEngine::save_column_meta($s_post_info['post_id'], $s_post_info['column'], $s_post_info['value']);
 						break;
 					}
 					wp_update_post([
@@ -596,7 +600,7 @@ class SheetsPilotCellEditor
 						update_field(substr($s_post_info['column'], 4),  $s_post_info['value'], $s_post_info['post_id']);
 					}
 					if (substr($s_post_info['column'], 0, 8) == 'plugins_') {
-						update_field(substr($s_post_info['column'], 8),  $s_post_info['value'], $s_post_info['post_id']);
+						SheetsPilotPluginsJetEngine::save_column_meta($s_post_info['post_id'], $s_post_info['column'], $s_post_info['value']);
 					}
 					break;
 				case "taxonomy":
@@ -664,6 +668,8 @@ class SheetsPilotCellEditor
 							update_post_meta($s_post_info['post_id'],  substr($s_post_info['column'], 8),  implode(',', $s_post_info['value']));
 							break;
 						}
+						SheetsPilotPluginsJetEngine::save_column_meta($s_post_info['post_id'], $s_post_info['column'], $s_post_info['value']);
+						break;
 					}
 					update_field(substr($s_post_info['column'], 4),  $s_post_info['value'], $s_post_info['post_id']);
 					break;
@@ -2018,9 +2024,14 @@ class SheetsPilotCellEditor
 	public static function dropRepeaterContent($data)
 	{
 		$post_id = $data['post_id'];
-		$repeater_name = substr($data['repeater_name'], 4);
+		$column  = isset($data['repeater_name']) ? $data['repeater_name'] : '';
 
-		delete_field($repeater_name, $post_id);
+		if (SheetsPilotPluginsJetEngine::is_column($column)) {
+			SheetsPilotPluginsJetEngine::delete_repeater_meta($column, $post_id);
+			return ['result' => 'success'];
+		}
+
+		delete_field(substr($column, 4), $post_id);
 
 		return ['result' => 'success'];
 	}
@@ -2263,11 +2274,16 @@ class SheetsPilotCellEditor
 
 				if ($s_post_info['name']  == '_repeater_data') {
 
-					$repeater_processing = new SheetsPilotACFRepeaterProcessing();
-					$output_data[$s_post_info['name']] = [
-						'structure' => $repeater_processing->get_acf_repeater_structure(substr($data['filed_name'], 4), $post_id),
-						'values' => $repeater_processing->get_acf_repeater_values(substr($data['filed_name'], 4), $post_id)
-					];
+					$column = isset($data['filed_name']) ? $data['filed_name'] : '';
+					if (SheetsPilotPluginsJetEngine::is_column($column)) {
+						$output_data[$s_post_info['name']] = SheetsPilotPluginsJetEngine::get_repeater_drawer_data($column, $post_id);
+					} else {
+						$repeater_processing = new SheetsPilotACFRepeaterProcessing();
+						$output_data[$s_post_info['name']] = [
+							'structure' => $repeater_processing->get_acf_repeater_structure(substr($column, 4), $post_id),
+							'values' => $repeater_processing->get_acf_repeater_values(substr($column, 4), $post_id)
+						];
+					}
 				} elseif ($s_post_info['name']  == '_downloadable_files') {
 					$downloadable_fiels = get_post_meta($post_id, $s_post_info['name'], true);
 					$new_data_files = [];
@@ -2614,14 +2630,19 @@ class SheetsPilotCellEditor
 						}
 					}
 					$repeater_structure = SheetsPilotCellEditor::normalizeArrayKeys($repeater_structure);
-					update_field(substr($s_post_info['repeater_name'], 4), $repeater_structure, $post_id);
+					$repeater_column = isset($s_post_info['repeater_name']) ? $s_post_info['repeater_name'] : '';
+					if (SheetsPilotPluginsJetEngine::is_column($repeater_column)) {
+						SheetsPilotPluginsJetEngine::save_repeater_from_drawer($repeater_column, $post_id, $repeater_structure);
+					} else {
+						update_field(substr($repeater_column, 4), $repeater_structure, $post_id);
+					}
 				} else {
 
 					if (substr($s_post_info['field_name'], 0, 4) == 'acf_') {
 						update_post_meta($post_id,  substr($s_post_info['field_name'], 4), $s_post_info['value']);
 					}
 					if (substr($s_post_info['field_name'], 0, 8) == 'plugins_') {
-						update_post_meta($post_id,  substr($s_post_info['field_name'], 8), $s_post_info['value']);
+						SheetsPilotPluginsJetEngine::save_column_meta($post_id, $s_post_info['field_name'], $s_post_info['value']);
 					}
  
 				}

@@ -3212,6 +3212,11 @@ class SheetsPilot_CellProcessing {
 
 
 			current_value = ids;
+			parent_container.data('value', current_value);
+			parent_container.attr(
+				'data-value',
+				Array.isArray(current_value) ? current_value.join(',') : (current_value == null ? '' : String(current_value))
+			);
 		}
 
 		if (type == 'acf_select') {
@@ -3804,12 +3809,17 @@ class SheetsPilot_CellProcessing {
 		if (rowData.readonly) {
 			readonly = true;
 		}
+		// Objects (post_object / acf_select payloads) must not go into data-value —
+		// jQuery stringifies them as "[object Object]". Complex types set IDs below.
+		var initialDataValue = (value !== null && typeof value === 'object' && !Array.isArray(value))
+			? ''
+			: value;
 		var $div_container = jQuery('<div>', {
 			class: this.g_editorContainerNoPrefix,
 			'data-readonly': readonly,
 			'data-type': cellType,
 			'data-column': variable_name,
-			'data-value': value,
+			'data-value': initialDataValue,
 			'data-manage': rowData.manage,
 
 		});
@@ -4057,6 +4067,12 @@ class SheetsPilot_CellProcessing {
 			selected_posts.forEach(function (opt) {
 				selected_posts_ids.push(opt.id);
 			});
+
+			var postObjectDataValue = multiple
+				? selected_posts_ids.join(',')
+				: (selected_posts_ids.length ? selected_posts_ids[0] : '');
+			$div_container.attr('data-value', postObjectDataValue);
+			$div_container.data('value', multiple ? selected_posts_ids.slice() : postObjectDataValue);
 
 
 			// add options
@@ -5954,17 +5970,26 @@ class SheetsPilot_CellProcessing {
 
 	/**
 	 * Split post_content save payload for Elementor rows: plain text in value, layout JSON in elementor_data.
+	 * Preserves arrays (e.g. multi post_object / gallery IDs) so ACF receives the correct type.
 	 *
 	 * @param {jQuery} $row Table row.
 	 * @param {jQuery} $container Editor container.
 	 * @param {string} column Column name.
-	 * @param {string} value Current cell value.
-	 * @return {{value:string,is_elementor:number,elementor_data:string}}
+	 * @param {string|number|Array} value Current cell value.
+	 * @return {{value:string|number|Array,is_elementor:number,elementor_data:string}}
 	 */
 	preparePostContentSaveFields($row, $container, column, value) {
 		var isElementorRow = $row.attr('data-is-elementor') === '1';
+		var payloadValue;
+		if (Array.isArray(value)) {
+			payloadValue = value;
+		} else if (typeof value === 'string' || typeof value === 'number') {
+			payloadValue = value;
+		} else {
+			payloadValue = String(value || '');
+		}
 		var payload = {
-			value: typeof value === 'string' ? value : String(value || ''),
+			value: payloadValue,
 			is_elementor: isElementorRow ? 1 : 0,
 			elementor_data: ''
 		};

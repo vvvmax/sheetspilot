@@ -10,7 +10,7 @@
 Plugin Name: SheetsPilot Pro
 Plugin URI: https://sheetspilot.ai
 Description: Pro add-on for SheetsPilot. Enables Pro mode and AI assistant features in the core SheetsPilot plugin.
-Version: 1.0.6
+Version: 1.0.7
 Update URI: https://api.freemius.com
 Requires at least: 6.0
 Requires PHP: 7.4
