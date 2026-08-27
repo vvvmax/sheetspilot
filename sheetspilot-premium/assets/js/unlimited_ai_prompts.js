@@ -2243,11 +2243,6 @@
 				return undefined;
 			}
 
-			var raw = $prDialog.attr('data-replacement-save-value');
-			if (typeof raw === 'string' && raw !== '') {
-				return raw;
-			}
-
 			var stored = $prDialog.data('replacementSaveValue');
 			if (typeof stored === 'string' || typeof stored === 'number') {
 				return String(stored);
@@ -2258,6 +2253,11 @@
 				} catch (e) {
 					return undefined;
 				}
+			}
+
+			var raw = $prDialog.attr('data-replacement-save-value');
+			if (typeof raw === 'string' && raw !== '') {
+				return raw;
 			}
 
 			return undefined;
@@ -3294,8 +3294,8 @@
 			}
 			$textContainer.html(getPromptReplaceDialogDisplayHtml(displayText));
 			$prDialog.data('replacementText', displayText);
-			$prDialog.attr('data-replacement-save-value', raw);
-			$prDialog.removeData('replacementSaveValue');
+			$prDialog.data('replacementSaveValue', raw);
+			$prDialog.removeAttr('data-replacement-save-value');
 			if (blocks) {
 				$prDialog.data('replacementBlocks', blocks);
 			} else {

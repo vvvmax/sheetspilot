@@ -409,8 +409,12 @@ class SheetsPilot_AjaxActions
 			$raw_request  = SheetsPilotFunctions::getVal( $debug_info, 'request' );
 			$raw_response = SheetsPilotFunctions::getVal( $debug_info, 'response' );
 		}
-		if ( $prompt_metadata === null ) {
-			$prompt_metadata = $this->collectApplyPromptMetadata();
+
+		$latest_metadata = $this->collectApplyPromptMetadata();
+		if ( is_array( $prompt_metadata ) && ! empty( $prompt_metadata ) ) {
+			$prompt_metadata = array_merge( $prompt_metadata, $latest_metadata );
+		} else {
+			$prompt_metadata = $latest_metadata;
 		}
 
 		$insert_id = SheetsPilot_RequestLog::insert(
@@ -423,7 +427,18 @@ class SheetsPilot_AjaxActions
 			$prompt_metadata
 		);
 
-		return $insert_id ? (int) $insert_id : 0;
+		$insert_id = $insert_id ? (int) $insert_id : 0;
+		if ( $insert_id > 0 ) {
+			$post_id = is_array( $table_data )
+				? absint( SheetsPilotFunctions::getVal( $table_data, 'postId', 0 ) )
+				: 0;
+			if ( $post_id <= 0 && is_array( $prompt_metadata ) ) {
+				$post_id = absint( SheetsPilotFunctions::getVal( $prompt_metadata, 'post_id', 0 ) );
+			}
+			SheetsPilot_RequestLog::rememberLastApplyPromptLogId( $post_id, $insert_id );
+		}
+
+		return $insert_id;
 	}
 
 	/**
@@ -456,6 +471,14 @@ class SheetsPilot_AjaxActions
 		}
 
 		SheetsPilot_AjaxSessionLog::addData( $label, $data );
+
+		$copy_to_metadata = array(
+			'applyPromptPipeline'    => true,
+			'applyPromptPostContent' => true,
+		);
+		if ( isset( $copy_to_metadata[ (string) $label ] ) && class_exists( 'SheetsPilot_Prompts', false ) ) {
+			SheetsPilot_Prompts::mergeIntoLastPromptRequestMetadata( (string) $label, $data );
+		}
 	}
 
 	/**
@@ -867,33 +890,32 @@ class SheetsPilot_AjaxActions
 		}
 
 		if ( is_array( $blocks_payload ) ) {
-			$show = is_string( $display_text ) ? trim( $display_text ) : '';
-			if ( $show === '' ) {
-				$show = SheetsPilot_ContentBlocks::to_display_text( $blocks_payload );
-			}
-			if ( $show === '' && ! empty( $blocks_payload['display_text'] ) ) {
-				$show = SheetsPilotFunctions::toString( $blocks_payload['display_text'] );
-			}
-
-			$blocks_list = SheetsPilot_ContentBlocks::normalize_blocks_payload( $blocks_payload );
+			$blocks_list  = SheetsPilot_ContentBlocks::normalize_blocks_payload( $blocks_payload );
 			$is_elementor = $this->isPostContentElementorRow( $post_id, $table_data );
 
 			if ( $is_elementor ) {
 				$insert = SheetsPilot_ContentBlocks::to_simple_html( $blocks_payload );
-				if ( $insert === '' ) {
-					$insert = $show;
-				}
 			} else {
 				$insert = SheetsPilot_ContentBlocks::to_gutenberg( $blocks_payload );
-				if ( $show === '' ) {
-					$show = SheetsPilot_Prompts::get_plain_text_for_prompt_display( $insert );
-				}
 			}
 
-			SheetsPilot_AjaxSessionLog::addData(
+			$show = SheetsPilot_ContentBlocks::to_full_display_text( $blocks_payload );
+			if ( $show === '' && class_exists( 'SheetsPilot_Prompts' ) && is_string( $insert ) && $insert !== '' ) {
+				$show = SheetsPilot_Prompts::get_plain_text_for_prompt_display( $insert );
+			}
+			if ( $show === '' && is_string( $display_text ) ) {
+				$show = trim( $display_text );
+			}
+
+			if ( $is_elementor && $insert === '' ) {
+				$insert = $show;
+			}
+
+			$this->logApplyPromptSession(
 				'applyPromptPostContent',
 				array(
 					'post_id'      => $post_id,
+					'is_elementor' => $is_elementor,
 					'mode'         => $is_elementor ? 'content_blocks_elementor' : 'content_blocks_gutenberg',
 					'blocks_count' => count( $blocks_list ),
 					'show_len'     => strlen( $show ),
@@ -923,7 +945,7 @@ class SheetsPilot_AjaxActions
 			if ( is_array( $elementor_tree ) && ! empty( $elementor_tree ) ) {
 				return array(
 					'insert'       => wp_json_encode( $elementor_tree ),
-					'show'         => $display_text !== '' ? $display_text : SheetsPilot_ContentBlocks::elementor_data_to_display_text( $elementor_tree ),
+					'show'         => SheetsPilot_ContentBlocks::elementor_data_to_display_text( $elementor_tree, 0 ),
 					'is_elementor' => true,
 				);
 			}
