@@ -115,6 +115,15 @@ OpenAI Privacy Policy: https://openai.com/policies/privacy-policy
 
 == Change-log ==
 
+= 1.0.10 =
+
+* Feature: Done a facebook text custom column 
+
+
+= 1.0.9 =
+
+* Fix: AI generated Elementor content on a new post is now saved as separate widgets (headings, lists, paragraphs) instead of one text widget
+
 = 1.0.8 =
 
 * Change: AI generated post content no longer includes a page title, since the page already has one

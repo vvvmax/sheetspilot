@@ -191,12 +191,15 @@ class SheetsPilotCellEditor
 		$elementor_raw  = isset( $args['elementor_data'] ) ? (string) $args['elementor_data'] : '';
 
 		if ( $is_elementor && ( ! is_array( $elementor_data ) || empty( $elementor_data ) ) && class_exists( 'SheetsPilot_ContentBlocks' ) ) {
-			$fallback_text = self::resolveElementorFallbackDisplayText( $value, $args );
-			if ( $fallback_text !== '' ) {
-				$elementor_data = SheetsPilot_ContentBlocks::fallback_elementor_layout_from_text( $fallback_text, $post_id );
+			$layout_source = self::resolveElementorLayoutSourceText( $value, $args );
+			if ( $layout_source !== '' ) {
+				$elementor_data = SheetsPilot_ContentBlocks::fallback_elementor_layout_from_text( $layout_source, $post_id );
 				if ( is_array( $elementor_data ) && ! empty( $elementor_data ) ) {
 					$used_fallback = true;
-					$save_mode     = 'elementor_fallback_text';
+					$widget_count  = self::countElementorWidgets( $elementor_data );
+					$save_mode     = ( $widget_count > 1 || self::looksLikeHtmlContent( $layout_source ) )
+						? 'elementor_from_html'
+						: 'elementor_fallback_text';
 				}
 			}
 		}
@@ -214,6 +217,7 @@ class SheetsPilotCellEditor
 					'value_len'      => is_string( $value ) ? strlen( $value ) : 0,
 					'elementor_len'  => strlen( wp_json_encode( $elementor_data ) ),
 					'post_content_len' => strlen( $post_content_fallback ),
+					'widgets_count'  => self::countElementorWidgets( $elementor_data ),
 					'value_preview'  => self::getSavePostContentLogPreview( $value ),
 				);
 				if ( $used_fallback ) {
@@ -327,6 +331,62 @@ class SheetsPilotCellEditor
 		json_decode( trim( $value ), true );
 		$error = json_last_error_msg();
 		return $error === 'No error' ? '' : $error;
+	}
+
+	/**
+	 * Prefer structured HTML (headings/lists) over plain display_text when building Elementor widgets.
+	 *
+	 * @param mixed $value Cell value.
+	 * @param array $args  Save args.
+	 * @return string
+	 */
+	private static function resolveElementorLayoutSourceText( $value, $args ) {
+		if ( is_string( $value ) && self::looksLikeHtmlContent( $value ) ) {
+			return trim( $value );
+		}
+
+		if ( isset( $args['display_value'] ) && is_string( $args['display_value'] ) && self::looksLikeHtmlContent( $args['display_value'] ) ) {
+			return trim( $args['display_value'] );
+		}
+
+		return self::resolveElementorFallbackDisplayText( $value, $args );
+	}
+
+	/**
+	 * @param string $text Candidate content.
+	 * @return bool
+	 */
+	private static function looksLikeHtmlContent( $text ) {
+		if ( ! is_string( $text ) || trim( $text ) === '' ) {
+			return false;
+		}
+
+		return (bool) preg_match( '/<\s*(p|h[1-6]|ul|ol|li|blockquote|hr|pre|table|details)\b/i', $text );
+	}
+
+	/**
+	 * @param array $tree Elementor elements tree.
+	 * @return int
+	 */
+	private static function countElementorWidgets( $tree ) {
+		$count = 0;
+		if ( ! is_array( $tree ) ) {
+			return 0;
+		}
+
+		foreach ( $tree as $element ) {
+			if ( ! is_array( $element ) ) {
+				continue;
+			}
+			if ( ! empty( $element['widgetType'] ) ) {
+				$count++;
+			}
+			if ( ! empty( $element['elements'] ) && is_array( $element['elements'] ) ) {
+				$count += self::countElementorWidgets( $element['elements'] );
+			}
+		}
+
+		return $count;
 	}
 
 	/**
@@ -1296,7 +1356,26 @@ class SheetsPilotCellEditor
 
 		// add filter for plugins
 		$init_columns = apply_filters('sheetspilot_filter_table_columns', $init_columns, $postType );
-		
+
+		foreach ( SheetsPilotGlobals::$sheetspilotFields as $slug => $field_data ) {
+			if ( ! empty( $field_data['exclude_post_types'] ) && in_array( $postType, (array) $field_data['exclude_post_types'], true ) ) {
+				continue;
+			}
+
+			$init_columns[] = [
+				'title'          => $field_data['label'],
+				'name'           => 'plugins_' . $slug,
+				'width'          => isset( $field_data['width'] ) ? $field_data['width'] : 300,
+				'type'           => $field_data['type'],
+				'dev_type'       => isset( $field_data['dev_type'] ) ? $field_data['dev_type'] : 'meta_field',
+				'rows'           => isset( $field_data['rows'] ) ? $field_data['rows'] : 5,
+				'readonly'       => ( isset( $field_data['readonly'] ) && $field_data['readonly'] ? true : false ),
+				'orderable'      => true,
+				'switchable'     => true,
+				'column_search'  => isset( $field_data['column_search'] ) ? $field_data['column_search'] : 'text',
+				'is_pro'         => ( in_array( $field_data['type'], SheetsPilotGlobals::$proFilesList ) ? true : false ),
+			];
+		}
 
 		// process Custom plugin fields
 		foreach (SheetsPilotGlobals::$rankMathFields as $slug => $field_data) {

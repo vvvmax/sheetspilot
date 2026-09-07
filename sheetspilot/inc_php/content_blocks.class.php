@@ -731,7 +731,10 @@ class SheetsPilot_ContentBlocks {
 	}
 
 	/**
-	 * Build a minimal Elementor layout with one text-editor widget (fallback when JSON layout is invalid).
+	 * Build an Elementor layout from HTML or plain text.
+	 *
+	 * Structured HTML (headings, lists, paragraphs) becomes separate widgets.
+	 * Unstructured text still falls back to one text-editor widget.
 	 *
 	 * @param string $text    Plain text or basic HTML.
 	 * @param int    $post_id Post ID (matches section vs container wrapper).
@@ -743,13 +746,333 @@ class SheetsPilot_ContentBlocks {
 			return null;
 		}
 
-		$html   = self::text_to_elementor_editor_html( $text );
-		$widget = self::make_elementor_text_editor_widget( $html );
-		if ( empty( $widget ) ) {
-			return null;
+		$widgets = self::html_or_text_to_elementor_widgets( $text );
+		if ( empty( $widgets ) ) {
+			$html   = self::text_to_elementor_editor_html( $text );
+			$widget = self::make_elementor_text_editor_widget( $html );
+			if ( empty( $widget ) ) {
+				return null;
+			}
+			$widgets = array( $widget );
 		}
 
-		return self::wrap_elementor_widgets( array( $widget ), $post_id );
+		return self::wrap_elementor_widgets( $widgets, $post_id );
+	}
+
+	/**
+	 * Convert simple HTML or plain text into Elementor widgets (heading, list, text-editor).
+	 *
+	 * @param string $text HTML or plain text.
+	 * @return array
+	 */
+	private static function html_or_text_to_elementor_widgets( $text ) {
+		$blocks = self::simple_html_to_blocks( $text );
+		if ( empty( $blocks ) ) {
+			return array();
+		}
+
+		$widgets = array();
+		foreach ( $blocks as $block_def ) {
+			$widget = self::convert_block_to_elementor_widget( $block_def );
+			if ( $widget !== null ) {
+				$widgets[] = $widget;
+			}
+		}
+
+		return $widgets;
+	}
+
+	/**
+	 * Parse simple HTML (or plain text) into a content-blocks tree.
+	 *
+	 * @param string $html HTML or plain text.
+	 * @return array
+	 */
+	public static function simple_html_to_blocks( $html ) {
+		$html = is_string( $html ) ? trim( $html ) : '';
+		if ( $html === '' ) {
+			return array();
+		}
+
+		if ( strpos( $html, '&' ) !== false ) {
+			$html = html_entity_decode( $html, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+		}
+
+		if ( ! preg_match( '/<\s*(p|h[1-6]|ul|ol|li|blockquote|hr|pre|table|details)\b/i', $html ) ) {
+			return self::plain_text_to_blocks( $html );
+		}
+
+		$nodes = self::parse_html_fragment_nodes( $html );
+		if ( empty( $nodes ) ) {
+			return self::plain_text_to_blocks( wp_strip_all_tags( $html ) );
+		}
+
+		return $nodes;
+	}
+
+	/**
+	 * @param string $text Plain text.
+	 * @return array
+	 */
+	private static function plain_text_to_blocks( $text ) {
+		$text = trim( (string) $text );
+		if ( $text === '' ) {
+			return array();
+		}
+
+		$chunks = preg_split( '/\n\s*\n/', $text );
+		if ( ! is_array( $chunks ) || empty( $chunks ) ) {
+			$chunks = array( $text );
+		}
+
+		$blocks = array();
+		foreach ( $chunks as $chunk ) {
+			$line = self::sanitize_plain_text( $chunk );
+			if ( $line === '' ) {
+				continue;
+			}
+			$blocks[] = array(
+				'type' => self::BLOCK_PARAGRAPH,
+				'text' => $line,
+			);
+		}
+
+		return $blocks;
+	}
+
+	/**
+	 * @param string $html HTML fragment.
+	 * @return array
+	 */
+	private static function parse_html_fragment_nodes( $html ) {
+		if ( $html === '' || ! class_exists( 'DOMDocument' ) ) {
+			return array();
+		}
+
+		$dom  = new DOMDocument();
+		$prev = libxml_use_internal_errors( true );
+		$loaded = $dom->loadHTML(
+			'<!DOCTYPE html><html><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8"></head><body>' . $html . '</body></html>'
+		);
+		libxml_clear_errors();
+		libxml_use_internal_errors( $prev );
+		if ( ! $loaded ) {
+			return array();
+		}
+
+		$body = $dom->getElementsByTagName( 'body' )->item( 0 );
+		if ( ! $body ) {
+			return array();
+		}
+
+		return self::dom_nodes_to_blocks( $body->childNodes );
+	}
+
+	/**
+	 * @param DOMNodeList|DOMNode[] $nodes DOM nodes.
+	 * @return array
+	 */
+	private static function dom_nodes_to_blocks( $nodes ) {
+		$blocks = array();
+		if ( ! $nodes ) {
+			return $blocks;
+		}
+
+		foreach ( $nodes as $node ) {
+			if ( ! $node instanceof DOMNode ) {
+				continue;
+			}
+
+			if ( $node->nodeType === XML_TEXT_NODE ) {
+				$text = self::sanitize_plain_text( $node->nodeValue );
+				if ( $text !== '' ) {
+					$blocks[] = array(
+						'type' => self::BLOCK_PARAGRAPH,
+						'text' => $text,
+					);
+				}
+				continue;
+			}
+
+			if ( $node->nodeType !== XML_ELEMENT_NODE ) {
+				continue;
+			}
+
+			$tag = strtolower( $node->nodeName );
+			switch ( $tag ) {
+				case 'h1':
+				case 'h2':
+				case 'h3':
+				case 'h4':
+				case 'h5':
+				case 'h6':
+					$level = (int) substr( $tag, 1 );
+					if ( $level < 2 ) {
+						$level = 2;
+					}
+					$text = self::sanitize_plain_text( $node->textContent );
+					if ( $text !== '' ) {
+						$blocks[] = array(
+							'type'  => self::BLOCK_HEADING,
+							'level' => $level,
+							'text'  => $text,
+						);
+					}
+					break;
+
+				case 'p':
+					$text = self::sanitize_plain_text( $node->textContent );
+					if ( $text !== '' ) {
+						$blocks[] = array(
+							'type' => self::BLOCK_PARAGRAPH,
+							'text' => $text,
+						);
+					}
+					break;
+
+				case 'ul':
+				case 'ol':
+					$items = self::dom_list_items( $node );
+					if ( ! empty( $items ) ) {
+						$blocks[] = array(
+							'type'    => self::BLOCK_LIST,
+							'ordered' => ( $tag === 'ol' ),
+							'items'   => $items,
+						);
+					}
+					break;
+
+				case 'hr':
+					$blocks[] = array( 'type' => self::BLOCK_SEPARATOR );
+					break;
+
+				case 'blockquote':
+					$citation = '';
+					$quote_text = '';
+					foreach ( $node->childNodes as $child ) {
+						if ( $child instanceof DOMElement && strtolower( $child->nodeName ) === 'cite' ) {
+							$citation = self::sanitize_plain_text( $child->textContent );
+							continue;
+						}
+						$part = self::sanitize_plain_text( $child->textContent );
+						if ( $part !== '' ) {
+							$quote_text = $quote_text === '' ? $part : $quote_text . ' ' . $part;
+						}
+					}
+					if ( $quote_text === '' ) {
+						$quote_text = self::sanitize_plain_text( $node->textContent );
+					}
+					if ( $quote_text !== '' ) {
+						$block = array(
+							'type' => self::BLOCK_QUOTE,
+							'text' => $quote_text,
+						);
+						if ( $citation !== '' ) {
+							$block['citation'] = $citation;
+						}
+						$blocks[] = $block;
+					}
+					break;
+
+				case 'pre':
+					$text = self::sanitize_plain_text( $node->textContent );
+					if ( $text !== '' ) {
+						$code_child = false;
+						foreach ( $node->childNodes as $child ) {
+							if ( $child instanceof DOMElement && strtolower( $child->nodeName ) === 'code' ) {
+								$code_child = true;
+								break;
+							}
+						}
+						$blocks[] = array(
+							'type' => $code_child ? self::BLOCK_CODE : self::BLOCK_PREFORMATTED,
+							'text' => $text,
+						);
+					}
+					break;
+
+				case 'details':
+					$summary = '';
+					$inner   = array();
+					foreach ( $node->childNodes as $child ) {
+						if ( $child instanceof DOMElement && strtolower( $child->nodeName ) === 'summary' ) {
+							$summary = self::sanitize_plain_text( $child->textContent );
+							continue;
+						}
+						$inner_blocks = self::dom_nodes_to_blocks( array( $child ) );
+						if ( ! empty( $inner_blocks ) ) {
+							$inner = array_merge( $inner, $inner_blocks );
+						}
+					}
+					$blocks[] = array(
+						'type'    => self::BLOCK_DETAILS,
+						'summary' => $summary,
+						'blocks'  => $inner,
+					);
+					break;
+
+				case 'a':
+					$text = self::sanitize_plain_text( $node->textContent );
+					$url  = $node instanceof DOMElement ? trim( (string) $node->getAttribute( 'href' ) ) : '';
+					if ( $text !== '' && $url !== '' ) {
+						$blocks[] = array(
+							'type'            => self::BLOCK_BUTTON,
+							'text'            => $text,
+							'url'             => $url,
+							'open_in_new_tab' => ( $node instanceof DOMElement && $node->getAttribute( 'target' ) === '_blank' ),
+						);
+					} elseif ( $text !== '' ) {
+						$blocks[] = array(
+							'type' => self::BLOCK_PARAGRAPH,
+							'text' => $text,
+						);
+					}
+					break;
+
+				case 'br':
+					break;
+
+				default:
+					$nested = self::dom_nodes_to_blocks( $node->childNodes );
+					if ( ! empty( $nested ) ) {
+						$blocks = array_merge( $blocks, $nested );
+					} else {
+						$text = self::sanitize_plain_text( $node->textContent );
+						if ( $text !== '' ) {
+							$blocks[] = array(
+								'type' => self::BLOCK_PARAGRAPH,
+								'text' => $text,
+							);
+						}
+					}
+					break;
+			}
+		}
+
+		return $blocks;
+	}
+
+	/**
+	 * @param DOMNode $node List element.
+	 * @return string[]
+	 */
+	private static function dom_list_items( $node ) {
+		$items = array();
+		if ( ! $node instanceof DOMNode ) {
+			return $items;
+		}
+
+		foreach ( $node->childNodes as $child ) {
+			if ( ! $child instanceof DOMElement || strtolower( $child->nodeName ) !== 'li' ) {
+				continue;
+			}
+			$text = self::sanitize_plain_text( $child->textContent );
+			if ( $text !== '' ) {
+				$items[] = $text;
+			}
+		}
+
+		return $items;
 	}
 
 	/**

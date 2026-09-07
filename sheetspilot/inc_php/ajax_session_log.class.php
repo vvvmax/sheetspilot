@@ -281,6 +281,7 @@ class SheetsPilot_AjaxSessionLog {
 			'value_len'     => 'Value length',
 			'elementor_len' => 'Elementor JSON length',
 			'post_content_len' => 'Post content fallback length',
+			'widgets_count'    => 'Elementor widgets',
 			'value_type'    => 'Value type',
 			'value_preview' => 'Value preview',
 			'value_json_error'     => 'Value JSON error',
