@@ -946,7 +946,7 @@ class SheetsPilot_CellProcessing {
 		var $icon = jQuery(e.currentTarget).closest('.edit_in_new_window, .edit_in_elementor');
 		var objCurrent = $icon.length ? $icon.closest('td') : jQuery(e.target).parents('td');
 		var post_id = objCurrent.attr('data-row');
-		var isElementor = $icon.hasClass('edit_in_elementor') || objCurrent.closest('tr').attr('data-is-elementor') === '1';
+		var isElementor = $icon.hasClass('edit_in_elementor') || this.isElementorTableRow(objCurrent.closest('tr'));
 		var edit_url = g_postEditLink.replace('%PID', post_id);
 		if (isElementor && typeof g_postElementorEditLink !== 'undefined' && g_postElementorEditLink) {
 			edit_url = g_postElementorEditLink.replace('%PID', post_id);
@@ -3038,7 +3038,9 @@ class SheetsPilot_CellProcessing {
 			} else {
 				current_value = 'no';
 			}
-
+			if (column == 'elementor_active') {
+				this.syncRowElementorFlag(parent_row, current_value === 'yes');
+			}
 		}
 		if (type == 'text') {
 			current_value = jQuery(this.g_editorPart + ' .' + type + '_editor_input', parent_container).val();
@@ -5468,7 +5470,7 @@ class SheetsPilot_CellProcessing {
 				window.ubaiPrompts.setPromptReplaceDialogImagePreview(data.requestId, data.previewUrl, data.postId, data.column);
 			}
 		} else if (typeof window.ubaiPrompts.setPromptReplaceDialogText === 'function') {
-			window.ubaiPrompts.setPromptReplaceDialogText(data.displayText, data.insertText, data.blocks || null);
+			window.ubaiPrompts.setPromptReplaceDialogText(data.displayText, data.insertText, data.blocks || null, data.is_elementor);
 		}
 		if (typeof window.ubaiPrompts.showPromptReplaceDialogForCell === 'function') {
 			window.ubaiPrompts.showPromptReplaceDialogForCell($cell, { reopenDiscarded: true });
@@ -5867,6 +5869,55 @@ class SheetsPilot_CellProcessing {
 	}
 
 	/**
+	 * Whether a table row is an Elementor post.
+	 * Uses the row flag, then the Elementor switch (new posts keep a stale flag after toggle).
+	 *
+	 * @param {jQuery} $row Table row.
+	 * @return {boolean}
+	 */
+	isElementorTableRow($row) {
+		if (!$row || !$row.length) {
+			return false;
+		}
+		if ($row.attr('data-is-elementor') === '1') {
+			return true;
+		}
+		var $switch = $row.find(this.g_editorContainer + '[data-column="elementor_active"] .switch_editor_input');
+		return !!( $switch.length && $switch.is(':checked') );
+	}
+
+	/**
+	 * Keep the row Elementor flag and post_content edit icon in sync with the switch.
+	 *
+	 * @param {jQuery} $row Table row.
+	 * @param {boolean} isOn Whether Elementor is enabled.
+	 */
+	syncRowElementorFlag($row, isOn) {
+		if (!$row || !$row.length) {
+			return;
+		}
+		var on = !!isOn;
+		$row.attr('data-is-elementor', on ? '1' : '0');
+
+		var $content = $row.find(this.g_editorContainer + '[data-column="post_content"]').first();
+		if (!$content.length) {
+			return;
+		}
+		var iconHtml = on
+			? (sheetspilot.editor.g_postContentEditIconElementorHtml || '')
+			: (sheetspilot.editor.g_postContentEditIconHtml || '');
+		if (!iconHtml) {
+			return;
+		}
+		var $manage = $content.closest('td').find('.bottom_manage_container.post_manage').first();
+		if ($manage.length) {
+			$manage.html(iconHtml);
+		}
+		$content.data('manage', iconHtml);
+		$content.attr('data-manage', iconHtml);
+	}
+
+	/**
 	 * Whether a string looks like Elementor layout JSON.
 	 *
 	 * @param {string} value Candidate value.
@@ -5979,7 +6030,7 @@ class SheetsPilot_CellProcessing {
 	 * @return {{value:string|number|Array,is_elementor:number,elementor_data:string}}
 	 */
 	preparePostContentSaveFields($row, $container, column, value) {
-		var isElementorRow = $row.attr('data-is-elementor') === '1';
+		var isElementorRow = this.isElementorTableRow($row);
 		var payloadValue;
 		if (Array.isArray(value)) {
 			payloadValue = value;
@@ -6037,7 +6088,7 @@ class SheetsPilot_CellProcessing {
 		var $row = $cell.closest('tr');
 		var post_id = $row.data('id') || $cell.data('row') || null;
 		var column_id = $cell.data('col') || null;
-		var isElementorRow = $row.attr('data-is-elementor') === '1';
+		var isElementorRow = this.isElementorTableRow($row);
 		var isElementorPostContent = isElementorRow && column === 'post_content';
 		var manage = $container.data('manage') || '';
 
@@ -6063,6 +6114,12 @@ class SheetsPilot_CellProcessing {
 					displayContent = value;
 				}
 			}
+		}
+
+		if (column === 'post_content' && (blocksPayload || (options && options.is_elementor))) {
+			isElementorRow = true;
+			isElementorPostContent = true;
+			this.syncRowElementorFlag($row, true);
 		}
 
 		var visualOnly = options && options.visualOnly === true;
@@ -6359,7 +6416,7 @@ class SheetsPilot_CellProcessing {
 			}
 		}
 
-		const isElementorRow = $row.attr('data-is-elementor') === '1';
+		const isElementorRow = this.isElementorTableRow($row);
 
 		const tableData = {
 			isSelected: true,

@@ -150,6 +150,9 @@ class SheetsPilotGlobals{
 	public static $enableCopy = false;
 	public static $enablePaste = false;
 
+	// SheetsPilot-owned meta columns (always present; stored as post meta).
+	public static $sheetspilotFields = [];
+
 	//custom fields from RANK MATH
 	public static $rankMathFields = [];
 	public static $yoastFields = [];
@@ -408,6 +411,18 @@ class SheetsPilotGlobals{
 			'apply_column_rules'    => __( 'Apply the saved AI column rules to this cell. Return only the new value for this column.', 'sheetspilot' ),
 			'restore-previous'      => '',
 		);
+
+		self::$sheetspilotFields = [
+			'_sheetspilot_facebook_text' => [
+				'label' => __( 'Facebook Text', 'sheetspilot' ),
+				'type' => 'textarea',
+				'dev_type' => 'meta_field',
+				'width' => 300,
+				'rows' => 5,
+				'column_search' => 'text',
+				'exclude_post_types' => [ 'attachment' ],
+			],
+		];
 
 		// yast fields
 		if( SheetsPilotHelper::isPluginInstalledAndActive( 'wordpress-seo' )['installed'] && SheetsPilotHelper::isPluginInstalledAndActive( 'wordpress-seo' )['active'] )

@@ -2178,6 +2178,7 @@
 				displayText: replacementText,
 				insertText: insertText,
 				blocks: getPromptReplaceDialogBlocks(),
+				is_elementor: !!$prDialog.data('replacementIsElementor'),
 				tableSnapshot: tableSnapshot
 			});
 		}
@@ -2758,6 +2759,9 @@
 			if (replacementBlocks) {
 				replaceOptions.blocks = replacementBlocks;
 			}
+			if ($prDialog.data('replacementIsElementor')) {
+				replaceOptions.is_elementor = true;
+			}
 			if (typeof prTableManipulator.clearDiscardedPendingPromptResult === 'function') {
 				prTableManipulator.clearDiscardedPendingPromptResult($targetCell);
 			}
@@ -3266,7 +3270,7 @@
 		/**
 		 * Set dialog text payload (display, insert value, optional Elementor blocks).
 		 */
-		function setPromptReplaceDialogText(text, rawTextOptional, blocksOptional) {
+		function setPromptReplaceDialogText(text, rawTextOptional, blocksOptional, isElementorOptional) {
 
 			if (!$prDialog.length) {
 				return;
@@ -3279,11 +3283,15 @@
 			var displayText = '';
 			var raw = '';
 			var blocks = blocksOptional || null;
+			var isElementor = !!isElementorOptional;
 			if (text && typeof text === 'object') {
 				displayText = typeof text.show === 'string' ? text.show : '';
 				raw = typeof text.insert === 'string' ? text.insert : displayText;
 				if (text.blocks && typeof text.blocks === 'object') {
 					blocks = text.blocks;
+				}
+				if (text.is_elementor) {
+					isElementor = true;
 				}
 			} else {
 				displayText = typeof text === 'string' ? text : '';
@@ -3300,6 +3308,11 @@
 				$prDialog.data('replacementBlocks', blocks);
 			} else {
 				$prDialog.removeData('replacementBlocks');
+			}
+			if (isElementor) {
+				$prDialog.data('replacementIsElementor', true);
+			} else {
+				$prDialog.removeData('replacementIsElementor');
 			}
 		}
 

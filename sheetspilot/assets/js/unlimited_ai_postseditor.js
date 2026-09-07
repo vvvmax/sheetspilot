@@ -2446,6 +2446,9 @@ function SheetsPilot_PostsEditorView(action_prefix, action_name) {
 			if (data.blocks && typeof data.blocks === 'object') {
 				replaceOptions.blocks = data.blocks;
 			}
+			if (data.is_elementor) {
+				replaceOptions.is_elementor = true;
+			}
 			if (insertText !== '') {
 				replacementSaveValue = insertText;
 			} else if (replaceOptions.blocks) {
@@ -5135,6 +5138,7 @@ function SheetsPilot_PostsEditorView(action_prefix, action_name) {
 		var insertText = '';
 		var displayText = '';
 		var blocks = null;
+		var isElementor = false;
 
 		if (Array.isArray(payload)) {
 			insertText = JSON.stringify(payload);
@@ -5145,6 +5149,7 @@ function SheetsPilot_PostsEditorView(action_prefix, action_name) {
 			if (payload.blocks && typeof payload.blocks === 'object') {
 				blocks = payload.blocks;
 			}
+			isElementor = !!payload.is_elementor;
 		} else {
 			insertText = getApplyPromptReplacementValue(payload) || '';
 			displayText = insertText;
@@ -5157,7 +5162,8 @@ function SheetsPilot_PostsEditorView(action_prefix, action_name) {
 		return {
 			insertText: insertText,
 			displayText: displayText,
-			blocks: blocks
+			blocks: blocks,
+			is_elementor: isElementor
 		};
 	}
 
@@ -5191,6 +5197,7 @@ function SheetsPilot_PostsEditorView(action_prefix, action_name) {
 				displayText: textParts.displayText,
 				insertText: textParts.insertText,
 				blocks: textParts.blocks,
+				is_elementor: !!textParts.is_elementor,
 				tableSnapshot: tableSnapshot
 			};
 		}
@@ -5520,7 +5527,7 @@ function SheetsPilot_PostsEditorView(action_prefix, action_name) {
 			return;
 		}
 
-		window.ubaiPrompts.setPromptReplaceDialogText(textParts.displayText, textParts.insertText, textParts.blocks);
+		window.ubaiPrompts.setPromptReplaceDialogText(textParts.displayText, textParts.insertText, textParts.blocks, textParts.is_elementor);
 	}
 
 	/**

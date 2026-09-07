@@ -810,7 +810,15 @@ class SheetsPilotQueryProcessing
 
 			$tmp_array_element = apply_filters('sheetspilot_filter_table_values', $tmp_array_element, $this->postType, $s_post->ID );
 			$fields_to_use = apply_filters('sheetspilot_filter_table_fields', $fields_to_use, $this->postType, $s_post->ID );
-		
+
+			foreach ( SheetsPilotGlobals::$sheetspilotFields as $slug => $field_data ) {
+				if ( ! empty( $field_data['exclude_post_types'] ) && in_array( $this->postType, (array) $field_data['exclude_post_types'], true ) ) {
+					continue;
+				}
+
+				$tmp_array_element[]['plugins_' . $slug] = get_post_meta( $s_post->ID, $slug, true );
+				$fields_to_use[] = 'plugins_' . $slug;
+			}
 
 			// custom fields from plugins
 			foreach (SheetsPilotGlobals::$rankMathFields as $slug => $title) {
