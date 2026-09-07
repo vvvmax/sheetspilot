@@ -9,7 +9,7 @@
 Plugin Name: SheetsPilot - AI Spreadsheet Editor & Bulk Editor for Posts, WooCommerce Products & SEO
 Plugin URI: https://sheetspilot.ai
 Description: Bulk edit posts, pages, products, and custom fields using a spreadsheet interface.
-Version: 1.0.7
+Version: 1.0.8
 Requires at least: 6.0
 Requires PHP: 7.4
 Tested up to: 7.0
@@ -27,7 +27,7 @@ if ( ! defined( 'SHEETSPILOT_INC' ) ) {
 }
 
 
-define("SHEETSPILOT_DEV_BUILD","3");
+define("SHEETSPILOT_DEV_BUILD","");
 
 
 if ( !function_exists( 'she_fs' ) ) {
@@ -91,7 +91,7 @@ add_action('init', function() {
 		
 	}else{
 		
-		define("SHEETSPILOT_VERSION","1.0.7");
+		define("SHEETSPILOT_VERSION","1.0.8");
 		define("SHEETSPILOT_PRO_VERSION_COMPATABE_FROM","1.0.5");
 		
 		$current_folder = dirname( __FILE__ );

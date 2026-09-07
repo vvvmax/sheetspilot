@@ -34,7 +34,7 @@ class SheetsPilot_Prompts{
 		. "- \"data\" MUST be: {\"blocks\":[ ... ]}\n"
 		. "- Each block MUST have \"type\" set to one of the allowed types.\n"
 		. "- paragraph: {\"type\":\"paragraph\",\"text\":\"...\"}\n"
-		. "- heading: {\"type\":\"heading\",\"level\":2,\"text\":\"...\"} (level 1-6, default 2)\n"
+		. "- heading: {\"type\":\"heading\",\"level\":2,\"text\":\"...\"} (level 2-6 only, default 2; never use level 1)\n"
 		. "- list: {\"type\":\"list\",\"ordered\":false,\"items\":[\"item 1\",\"item 2\"]}\n"
 		. "- separator: {\"type\":\"separator\"}\n"
 		. "- quote: {\"type\":\"quote\",\"text\":\"...\",\"citation\":\"...\"} (citation optional)\n"
@@ -46,6 +46,8 @@ class SheetsPilot_Prompts{
 		. "- accordion: {\"type\":\"accordion\",\"items\":[{\"title\":\"Section one\",\"blocks\":[{\"type\":\"paragraph\",\"text\":\"...\"}]},{\"title\":\"Section two\",\"blocks\":[{\"type\":\"paragraph\",\"text\":\"...\"}]}]}\n"
 		. "- button: {\"type\":\"button\",\"text\":\"Learn more\",\"url\":\"https://example.com\",\"open_in_new_tab\":false} (url and open_in_new_tab optional)\n\n"
 		. "Output rules:\n"
+		. "- Do NOT include a page title or post title in the content. The page already has a title, so do not start with a title heading and do not repeat the page/post title.\n"
+		. "- Use heading blocks only for section headings inside the body (level 2-6). Never use heading level 1.\n"
 		. "- Return plain text only inside block fields (no HTML tags, no markdown, no Gutenberg comments).\n"
 		. "- Put the complete final content in \"data.blocks\" (all blocks in reading order).\n"
 		. "- Add \"display_text\": a short plain-text preview (first few lines of the content).\n"
@@ -53,7 +55,7 @@ class SheetsPilot_Prompts{
 		. "(valid: {\"type\":\"list\",\"ordered\":false,\"items\":[\"a\",\"b\"]} — never omit the ]).\n"
 		. "- Do NOT wrap output in markdown code fences.\n"
 		. "- Example:\n"
-		. "{\"type\":\"data\",\"data\":{\"blocks\":[{\"type\":\"heading\",\"level\":2,\"text\":\"Title\"},{\"type\":\"paragraph\",\"text\":\"Intro text.\"},{\"type\":\"list\",\"ordered\":false,\"items\":[\"Point one\",\"Point two\"]},{\"type\":\"separator\"}]},\"display_text\":\"Title\\nIntro text.\",\"instruction_summary\":\"Rewrite content\"}";
+		. "{\"type\":\"data\",\"data\":{\"blocks\":[{\"type\":\"paragraph\",\"text\":\"Intro text.\"},{\"type\":\"heading\",\"level\":2,\"text\":\"Section heading\"},{\"type\":\"list\",\"ordered\":false,\"items\":[\"Point one\",\"Point two\"]},{\"type\":\"separator\"}]},\"display_text\":\"Intro text.\\nSection heading\",\"instruction_summary\":\"Rewrite content\"}";
 
 	/**
 	 * Extra system-message rules when the edited column is post_content.
@@ -64,6 +66,7 @@ class SheetsPilot_Prompts{
 		return 'When editing the post_content column, override the default "data as string" rule: '
 			. 'put in "data" a JSON object {"blocks":[...]} using the block types and format from the user message. '
 			. 'Never return HTML or Gutenberg block comments in "data". '
+			. 'Do not include a page title or post title in the content — the page already has a title. '
 			. 'Always include "display_text" with a short plain-text preview.';
 	}
 
@@ -836,6 +839,24 @@ class SheetsPilot_Prompts{
 	 */
 	public static function addNoteToLastPromptRequestMetadata( $text ) {
 		self::addStringToLastPromptRequestMetadata( $text );
+	}
+
+	/**
+	 * Merge a structured debug payload into last prompt request metadata (copied with the request log).
+	 *
+	 * @param string $key   Metadata key (e.g. applyPromptPipeline).
+	 * @param mixed  $value Payload stored under that key.
+	 * @return void
+	 */
+	public static function mergeIntoLastPromptRequestMetadata( $key, $value ) {
+		$key = is_string( $key ) ? trim( $key ) : '';
+		if ( $key === '' ) {
+			return;
+		}
+		if ( ! is_array( self::$lastPromptRequestMetadata ) ) {
+			self::$lastPromptRequestMetadata = array();
+		}
+		self::$lastPromptRequestMetadata[ $key ] = $value;
 	}
 
 	/**

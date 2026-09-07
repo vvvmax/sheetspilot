@@ -319,34 +319,47 @@ class SheetsPilot_ContentBlocks {
 	}
 
 	/**
-	 * Build plain-text preview from a blocks payload.
+	 * Build plain-text from a blocks payload.
 	 *
-	 * @param mixed $data Blocks payload.
+	 * @param mixed $data      Blocks payload.
+	 * @param int   $max_lines Max lines to keep. 0 or less = all blocks (no ellipsis).
 	 * @return string
 	 */
-	public static function to_display_text( $data ) {
+	public static function to_display_text( $data, $max_lines = 8 ) {
 		$blocks = self::normalize_blocks_payload( $data );
 		if ( empty( $blocks ) ) {
 			return '';
 		}
 
-		$lines = array();
+		$max_lines = (int) $max_lines;
+		$unlimited = $max_lines <= 0;
+		$lines     = array();
 		foreach ( $blocks as $block_def ) {
-			$line = self::block_to_display_line( $block_def );
+			$line = self::block_to_display_line( $block_def, $unlimited );
 			if ( $line !== '' ) {
 				$lines[] = $line;
 			}
-			if ( count( $lines ) >= 8 ) {
+			if ( ! $unlimited && count( $lines ) >= $max_lines ) {
 				break;
 			}
 		}
 
 		$text = implode( "\n", $lines );
-		if ( count( $blocks ) > 8 ) {
+		if ( ! $unlimited && count( $blocks ) > $max_lines ) {
 			$text .= "\n…";
 		}
 
 		return trim( $text );
+	}
+
+	/**
+	 * Full article text from all blocks (dialog / apply result). Never uses AI display_text.
+	 *
+	 * @param mixed $data Blocks payload.
+	 * @return string
+	 */
+	public static function to_full_display_text( $data ) {
+		return self::to_display_text( $data, 0 );
 	}
 
 	/**
@@ -487,16 +500,16 @@ class SheetsPilot_ContentBlocks {
 			return null;
 		}
 
-		$show = is_string( $display_text ) ? trim( $display_text ) : '';
-		if ( $show === '' ) {
-			$show = self::to_display_text( $insert_value );
+		$show = self::to_full_display_text( $insert_value );
+		if ( $show === '' && is_string( $display_text ) ) {
+			$show = trim( $display_text );
 		}
 
 		if ( $is_elementor && class_exists( 'SheetsPilotHelperElementor' ) && SheetsPilotHelperElementor::isInstalled() ) {
 			$elementor = self::to_elementor( $insert_value, $post_id );
 			$insert    = wp_json_encode( $elementor );
 			if ( $show === '' ) {
-				$show = self::to_display_text( $insert_value );
+				$show = self::to_full_display_text( $insert_value );
 			}
 
 			return array(
@@ -508,7 +521,9 @@ class SheetsPilot_ContentBlocks {
 
 		$gutenberg = self::to_gutenberg( $insert_value );
 		if ( $show === '' ) {
-			$show = SheetsPilot_Prompts::get_plain_text_for_prompt_display( $gutenberg );
+			$show = class_exists( 'SheetsPilot_Prompts' )
+				? SheetsPilot_Prompts::get_plain_text_for_prompt_display( $gutenberg )
+				: self::to_full_display_text( $insert_value );
 		}
 
 		return array(
@@ -792,9 +807,10 @@ class SheetsPilot_ContentBlocks {
 	 * Build a plain-text preview from stored Elementor layout data.
 	 *
 	 * @param mixed $elementor_data Elementor elements tree or JSON string.
+	 * @param int   $max_lines      Max lines to keep. 0 or less = all widgets.
 	 * @return string
 	 */
-	public static function elementor_data_to_display_text( $elementor_data ) {
+	public static function elementor_data_to_display_text( $elementor_data, $max_lines = 8 ) {
 		if ( is_string( $elementor_data ) ) {
 			$elementor_data = json_decode( $elementor_data, true );
 		}
@@ -804,17 +820,20 @@ class SheetsPilot_ContentBlocks {
 		}
 
 		$lines = array();
-		self::collect_elementor_display_lines( $elementor_data, $lines );
+		self::collect_elementor_display_lines( $elementor_data, $lines, (int) $max_lines );
 		$text  = implode( "\n", $lines );
 
 		return trim( $text );
 	}
 
 	/**
-	 * @param array $elements Elementor elements.
-	 * @param array $lines    Output lines.
+	 * @param array $elements  Elementor elements.
+	 * @param array $lines     Output lines.
+	 * @param int   $max_lines Max lines (0 = unlimited).
 	 */
-	private static function collect_elementor_display_lines( $elements, &$lines ) {
+	private static function collect_elementor_display_lines( $elements, &$lines, $max_lines = 8 ) {
+		$unlimited = (int) $max_lines <= 0;
+
 		foreach ( $elements as $element ) {
 			if ( ! is_array( $element ) ) {
 				continue;
@@ -828,10 +847,10 @@ class SheetsPilot_ContentBlocks {
 			}
 
 			if ( ! empty( $element['elements'] ) && is_array( $element['elements'] ) ) {
-				self::collect_elementor_display_lines( $element['elements'], $lines );
+				self::collect_elementor_display_lines( $element['elements'], $lines, $max_lines );
 			}
 
-			if ( count( $lines ) >= 8 ) {
+			if ( ! $unlimited && count( $lines ) >= $max_lines ) {
 				break;
 			}
 		}
@@ -927,9 +946,10 @@ class SheetsPilot_ContentBlocks {
 
 	/**
 	 * @param array $block_def Block definition.
+	 * @param bool  $full      When true, include all list items, table rows, and nested blocks.
 	 * @return string
 	 */
-	private static function block_to_display_line( $block_def ) {
+	private static function block_to_display_line( $block_def, $full = false ) {
 		if ( ! is_array( $block_def ) ) {
 			return '';
 		}
@@ -946,6 +966,13 @@ class SheetsPilot_ContentBlocks {
 
 			case self::BLOCK_LIST:
 				$items = self::get_block_list_items( $block_def );
+				if ( $full ) {
+					$prefixed = array();
+					foreach ( $items as $item ) {
+						$prefixed[] = '• ' . $item;
+					}
+					return implode( "\n", $prefixed );
+				}
 				return implode( ', ', array_slice( $items, 0, 4 ) );
 
 			case self::BLOCK_SEPARATOR:
@@ -956,17 +983,43 @@ class SheetsPilot_ContentBlocks {
 				if ( empty( $rows ) ) {
 					return '';
 				}
+				if ( $full ) {
+					$row_lines = array();
+					foreach ( $rows as $row ) {
+						$row_lines[] = implode( ' | ', $row );
+					}
+					return implode( "\n", $row_lines );
+				}
 				return implode( ' | ', $rows[0] );
 
 			case self::BLOCK_DETAILS:
 				$summary = isset( $block_def['summary'] ) ? self::sanitize_plain_text( (string) $block_def['summary'] ) : '';
+				if ( $full && ! empty( $block_def['blocks'] ) && is_array( $block_def['blocks'] ) ) {
+					$inner = self::to_full_display_text( array( 'blocks' => $block_def['blocks'] ) );
+					return trim( $summary . "\n" . $inner );
+				}
 				return $summary !== '' ? $summary : '[Details]';
 
 			case self::BLOCK_MORE:
 				return '[Read more]';
 
 			case self::BLOCK_ACCORDION:
-				$items  = self::get_block_accordion_items( $block_def );
+				$items = self::get_block_accordion_items( $block_def );
+				if ( $full ) {
+					$parts = array();
+					foreach ( $items as $item ) {
+						if ( $item['title'] !== '' ) {
+							$parts[] = $item['title'];
+						}
+						if ( ! empty( $item['blocks'] ) ) {
+							$inner = self::to_full_display_text( array( 'blocks' => $item['blocks'] ) );
+							if ( $inner !== '' ) {
+								$parts[] = $inner;
+							}
+						}
+					}
+					return ! empty( $parts ) ? implode( "\n", $parts ) : '[Accordion]';
+				}
 				$titles = array();
 				foreach ( $items as $item ) {
 					if ( $item['title'] !== '' ) {

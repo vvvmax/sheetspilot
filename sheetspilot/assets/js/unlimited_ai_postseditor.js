@@ -5524,6 +5524,38 @@ function SheetsPilot_PostsEditorView(action_prefix, action_name) {
 	}
 
 	/**
+	 * Put a column immediately after another column in a saved-order array.
+	 *
+	 * @param {string[]} order
+	 * @param {string} columnName
+	 * @param {string} afterName
+	 * @param {boolean} forceAdd
+	 * @return {string[]}
+	 */
+	function placeColumnAfter(order, columnName, afterName, forceAdd) {
+		if (!Array.isArray(order) || !columnName) {
+			return Array.isArray(order) ? order.slice() : [];
+		}
+
+		var exists = order.indexOf(columnName) !== -1;
+		var next = order.filter(function (name) {
+			return name !== columnName;
+		});
+		var afterIndex = next.indexOf(afterName);
+
+		if (afterIndex !== -1) {
+			next.splice(afterIndex + 1, 0, columnName);
+			return next;
+		}
+
+		if (forceAdd || exists) {
+			next.push(columnName);
+		}
+
+		return next;
+	}
+
+	/**
 	* Sort modal list based on column order
 	*/
 	function sortByNameOrder(items, order) {
@@ -5717,11 +5749,15 @@ function SheetsPilot_PostsEditorView(action_prefix, action_name) {
 		}
 
 		// check for new fields and add to order
-		const savedOrder = jQuery.parseJSON(g_objUbaiSelectedColumnsOrderInput.val());
+		let savedOrder = jQuery.parseJSON(g_objUbaiSelectedColumnsOrderInput.val());
 		const visible_columns = jQuery.parseJSON(g_objUbaiSelectedColumnsInput.val());
- 
+		if (!Array.isArray(savedOrder)) {
+			savedOrder = [];
+		}
+
 		if (savedOrder.length <= 3 ) {
-			g_objUbaiSelectedColumnsOrderInput.val(JSON.stringify(allowedKeys));
+			savedOrder = allowedKeys.slice();
+			g_objUbaiSelectedColumnsOrderInput.val(JSON.stringify(savedOrder));
 		}
 		if ( visible_columns.length <= 3) {
 			g_objUbaiSelectedColumnsInput.val(JSON.stringify(allowedKeys));
@@ -5736,15 +5772,26 @@ function SheetsPilot_PostsEditorView(action_prefix, action_name) {
 		}
 
 		initialFilteredColumns = $table_structure;
- 
+
 		const diff = active_keys.filter(x => !savedOrder.includes(x));
- 
+
 		if (diff.length > 0) {
- 
 			jQuery.each(diff, function (index, value) {
+				if (value === 'elementor_active') {
+					return;
+				}
 				savedOrder.push(value);
-			})
-			g_objUbaiSelectedColumnsOrderInput.val(JSON.stringify(savedOrder));
+			});
+		}
+
+		savedOrder = placeColumnAfter(
+			savedOrder,
+			'elementor_active',
+			'post_content',
+			active_keys.indexOf('elementor_active') !== -1
+		);
+		g_objUbaiSelectedColumnsOrderInput.val(JSON.stringify(savedOrder));
+		if (diff.length > 0) {
 			saveColumnOrder(g_objSpreadsheet);
 		}
  

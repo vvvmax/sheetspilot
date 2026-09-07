@@ -14,6 +14,8 @@ if ( ! defined( "SHEETSPILOT_INC" ) ) {
 
 class SheetsPilot_RequestLog {
 
+	const LAST_APPLY_LOG_TRANSIENT_PREFIX = 'sheetspilot_last_apply_log_';
+
 	/** @var float|null Request timer start (microtime). */
 	private static $request_time_start = null;
 
@@ -167,6 +169,99 @@ class SheetsPilot_RequestLog {
 		self::rotate();
 
 		return (int) $wpdb->insert_id;
+	}
+
+	/**
+	 * Remember the latest apply_prompt log id for a post (used to attach later save metadata).
+	 *
+	 * @param int $post_id Post ID.
+	 * @param int $log_id  Request log row id.
+	 * @return void
+	 */
+	public static function rememberLastApplyPromptLogId( $post_id, $log_id ) {
+		$post_id = absint( $post_id );
+		$log_id  = absint( $log_id );
+		if ( $post_id <= 0 || $log_id <= 0 ) {
+			return;
+		}
+
+		set_transient(
+			self::LAST_APPLY_LOG_TRANSIENT_PREFIX . get_current_user_id() . '_' . $post_id,
+			$log_id,
+			HOUR_IN_SECONDS
+		);
+	}
+
+	/**
+	 * Merge keys into an existing log row's metadata JSON.
+	 *
+	 * @param int                  $id    Log row id.
+	 * @param array<string,mixed>  $extra Keys to merge (overwrite on conflict).
+	 * @return bool
+	 */
+	public static function mergeMetadata( $id, $extra ) {
+		global $wpdb;
+
+		$id = absint( $id );
+		if ( $id <= 0 || ! is_array( $extra ) || empty( $extra ) ) {
+			return false;
+		}
+
+		$row = self::getById( $id );
+		if ( ! is_array( $row ) ) {
+			return false;
+		}
+
+		$metadata_arr = array();
+		$raw          = isset( $row['metadata'] ) ? $row['metadata'] : '';
+		if ( is_array( $raw ) ) {
+			$metadata_arr = $raw;
+		} elseif ( is_string( $raw ) && $raw !== '' ) {
+			$decoded = json_decode( $raw, true );
+			if ( is_array( $decoded ) ) {
+				$metadata_arr = $decoded;
+			}
+		}
+
+		$metadata_arr = array_merge( $metadata_arr, $extra );
+		$encoded      = wp_json_encode( $metadata_arr, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+		if ( ! is_string( $encoded ) ) {
+			return false;
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$updated = $wpdb->update(
+			SheetsPilotGlobals::$tableLogs,
+			array( 'metadata' => $encoded ),
+			array( 'id' => $id ),
+			array( '%s' ),
+			array( '%d' )
+		);
+
+		return false !== $updated;
+	}
+
+	/**
+	 * Merge a key into the latest apply_prompt log for this user + post.
+	 *
+	 * @param int    $post_id Post ID.
+	 * @param string $key     Metadata key.
+	 * @param mixed  $value   Payload.
+	 * @return bool
+	 */
+	public static function mergeMetadataIntoLastApplyPromptLog( $post_id, $key, $value ) {
+		$post_id = absint( $post_id );
+		$key     = is_string( $key ) ? trim( $key ) : '';
+		if ( $post_id <= 0 || $key === '' ) {
+			return false;
+		}
+
+		$log_id = (int) get_transient( self::LAST_APPLY_LOG_TRANSIENT_PREFIX . get_current_user_id() . '_' . $post_id );
+		if ( $log_id <= 0 ) {
+			return false;
+		}
+
+		return self::mergeMetadata( $log_id, array( $key => $value ) );
 	}
 
 	/**

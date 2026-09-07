@@ -56,6 +56,20 @@ class SheetsPilot_PluginViewWelcome
 		$newItems = ['bulk', 'id', 'post_title'];
 		array_unshift($this->postTypeSavedColumnsOrder, ...$newItems);
 
+		// Place the Elementor column after Content by default (toggle list and table).
+		if ( ! empty( SheetsPilotGlobals::$isElementorActive ) ) {
+			$content_index = array_search( 'post_content', $this->postTypeSavedColumnsOrder, true );
+			if ( $content_index !== false ) {
+				$this->postTypeSavedColumnsOrder = array_values( array_filter( $this->postTypeSavedColumnsOrder, function ( $item ) {
+					return $item !== 'elementor_active';
+				} ) );
+				$content_index = array_search( 'post_content', $this->postTypeSavedColumnsOrder, true );
+				if ( $content_index !== false ) {
+					array_splice( $this->postTypeSavedColumnsOrder, $content_index + 1, 0, array( 'elementor_active' ) );
+				}
+			}
+		}
+
 		// patch in case order of columns got mixed END
 
 		if (!is_array($this->savedColumns)) {

@@ -115,6 +115,12 @@ OpenAI Privacy Policy: https://openai.com/policies/privacy-policy
 
 == Change-log ==
 
+= 1.0.8 =
+
+* Change: AI generated post content no longer includes a page title, since the page already has one
+* Change: Elementor column now appears after the Content column by default in the table and column toggles
+
+
 = 1.0.7 =
 
 * Feature: added request log rotation so the database won't bloat.

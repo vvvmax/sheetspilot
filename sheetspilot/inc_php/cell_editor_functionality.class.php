@@ -287,7 +287,16 @@ class SheetsPilotCellEditor
 	 * @param array $data Log payload.
 	 */
 	private static function logSavePostContentValue( $data ) {
+		if ( ! is_array( $data ) ) {
+			$data = array();
+		}
+
 		SheetsPilot_AjaxSessionLog::addData( 'savePostContentValue', $data );
+
+		if ( class_exists( 'SheetsPilot_RequestLog', false ) ) {
+			$post_id = isset( $data['post_id'] ) ? absint( $data['post_id'] ) : 0;
+			SheetsPilot_RequestLog::mergeMetadataIntoLastApplyPromptLog( $post_id, 'savePostContentValue', $data );
+		}
 	}
 
 	/**
